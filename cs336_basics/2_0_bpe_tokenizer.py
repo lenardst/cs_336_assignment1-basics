@@ -164,6 +164,62 @@ class BPE_Tokenizer:
         n, m = len(sub), len(main)
         return any(main[i : i + n] == sub for i in range(m - n + 1))
 
+    def build_pair_index(
+        self, tokenized_counts: dict[tuple[bytes, ...], int]
+    ) -> dict[tuple[bytes, bytes], set[tuple[bytes, ...]]]:
+        pair_index: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]] = {}
+        for word_tuple in tokenized_counts:
+            for i in range(len(word_tuple) - 1):
+                pair = (word_tuple[i], word_tuple[i + 1])
+                if pair not in pair_index:
+                    pair_index[pair] = set()
+                pair_index[pair].add(word_tuple)
+        return pair_index
+
+    def apply_merge(
+        self,
+        best_pair: tuple[bytes, bytes],
+        tokenized_counts: dict[tuple[bytes, ...], int],
+        pair_counts: dict[tuple[bytes, bytes], int],
+        pair_index: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]],
+    ) -> None:
+        first, second = best_pair
+        merged = first + second
+        affected_words = list(pair_index.get(best_pair, set()))
+
+        for word_tuple in affected_words:
+            count = tokenized_counts[word_tuple]
+
+            for i in range(len(word_tuple) - 1):
+                pair = (word_tuple[i], word_tuple[i + 1])
+                pair_counts[pair] = pair_counts.get(pair, 0) - count
+                if pair_counts[pair] == 0:
+                    del pair_counts[pair]
+                if pair in pair_index:
+                    pair_index[pair].discard(word_tuple)
+
+            new_list = []
+            i = 0
+            while i < len(word_tuple):
+                if i < len(word_tuple) - 1 and word_tuple[i] == first and word_tuple[i + 1] == second:
+                    new_list.append(merged)
+                    i += 2
+                else:
+                    new_list.append(word_tuple[i])
+                    i += 1
+            new_word_tuple = tuple(new_list)
+
+            tokenized_counts[new_word_tuple] = tokenized_counts.pop(word_tuple)
+
+            for i in range(len(new_word_tuple) - 1):
+                pair = (new_word_tuple[i], new_word_tuple[i + 1])
+                pair_counts[pair] = pair_counts.get(pair, 0) + count
+                if pair not in pair_index:
+                    pair_index[pair] = set()
+                pair_index[pair].add(new_word_tuple)
+
+        pair_index.pop(best_pair, None)
+
     def update_word_pairs(
         self,
         to_merge: tuple[bytes, bytes],
@@ -206,6 +262,7 @@ class BPE_Tokenizer:
         pre_tokenized_counts = self.count_words(pre_tokenized_text)
         token_counts = pre_tokenized_counts
         pair_counts = self.initial_pair_counts(token_counts)
+        pair_index = self.build_pair_index(token_counts)
         start_time = time.perf_counter()
         initial_vocab_size = len(self.vocabulary)
         target_merges = max(0, max_vocab_size - initial_vocab_size)
@@ -232,8 +289,7 @@ class BPE_Tokenizer:
             self._add_merge(best_pair[0], best_pair[1])
             new_word = best_pair[0] + best_pair[1]
             self._add_to_vocab(new_word)
-            token_counts = self.merge_tokens_words_element(best_pair, token_counts)
-            pair_counts = self.update_word_pairs(best_pair, pair_counts, token_counts)
+            self.apply_merge(best_pair, token_counts, pair_counts, pair_index)
             merges_completed = len(self.vocabulary) - initial_vocab_size
             now = time.perf_counter()
             merge_boundary = (
