@@ -1,0 +1,247 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath, amssymb}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\title{CS336 Assignment 1 Writeup}
+\author{%
+  Name: \underline{\hspace{2.5in}}\\
+  SUNet ID: \underline{\hspace{2.2in}}
+}
+\date{\today}
+
+\newcommand{\answer}{\textbf{Answer:} \vspace{1.5em}}
+\newcommand{\placeholder}[1]{\textcolor{gray}{#1}}
+
+\begin{document}
+\maketitle
+
+\section*{Instructions}
+\begin{itemize}[leftmargin=1.5em]
+  \item Fill in the sections below with your final typeset answers.
+  \item Add plots/screenshots where requested (learning curves, generated text dumps, etc.).
+  \item Delete placeholder text before submission.
+\end{itemize}
+
+\tableofcontents
+\newpage
+
+\section{Problem \texttt{unicode1}: Understanding Unicode}
+\subsection*{(a) What Unicode character does \texttt{chr(0)} return?}
+\answer
+\placeholder{Write a one-sentence response here.}
+
+\subsection*{(b) \texttt{\_\_repr\_\_()} vs printed representation}
+\answer
+\placeholder{Write a one-sentence response here.}
+
+\subsection*{(c) What happens when this character occurs in text?}
+\answer
+\placeholder{Write a one-sentence response here.}
+
+\section{Problem \texttt{unicode2}: Unicode Encodings}
+\subsection*{(a) Why prefer UTF-8 bytes over UTF-16/UTF-32 for tokenizer training?}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(b) Why is \texttt{decode\_utf8\_bytes\_to\_str\_wrong} incorrect?}
+\answer
+\placeholder{Provide an example byte string and one-sentence explanation.}
+
+\subsection*{(c) Invalid two-byte UTF-8 sequence}
+\answer
+\placeholder{Give one example and a one-sentence explanation.}
+
+\section{Problem \texttt{train\_bpe\_tinystories}: BPE Training on TinyStories}
+\subsection*{(a) Runtime/memory/longest token observations}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(b) Profiling bottleneck}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\section{Problem \texttt{train\_bpe\_expts\_owt}: BPE Training on OpenWebText}
+\subsection*{(a) Longest token and whether it makes sense}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(b) TinyStories vs OpenWebText tokenizer comparison}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\section{Problem \texttt{tokenizer\_experiments}: Experiments with Tokenizers}
+\subsection*{(a) Compression ratio for each tokenizer (bytes/token)}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(b) Tokenizing OWT sample with TinyStories tokenizer}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(c) Tokenizer throughput and Pile tokenization time estimate}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(d) Why \texttt{uint16} is appropriate for serialized token IDs}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\section{Problem \texttt{transformer\_accounting}: Transformer LM Resource Accounting}
+\subsection*{(a) GPT-2 XL-shaped model parameter count and memory}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(b) Matrix multiplies in forward pass and total FLOPs}
+\answer
+\placeholder{List matrix multiplies with descriptions and compute total FLOPs.}
+
+\subsection*{(c) Dominant FLOP contributors}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\subsection*{(d) GPT-2 small/medium/large FLOP breakdown comparison}
+\answer
+\placeholder{Provide per-model FLOP proportion breakdown and brief analysis.}
+
+\subsection*{(e) GPT-2 XL at context length 16{,}384}
+\answer
+\placeholder{Write a one-to-two sentence response here.}
+
+\section{Problem \texttt{learning\_rate\_tuning}: Tuning the Learning Rate}
+\answer
+\placeholder{Write a one-to-two sentence response describing observed behavior for LR = 10, 100, 1000.}
+
+\section{Problem \texttt{adamw\_accounting}: Resource Accounting for AdamW}
+\subsection*{(a) Peak memory expression decomposition}
+\answer
+\placeholder{Give algebraic expressions for parameters, activations, gradients, optimizer state, and total.}
+
+\subsection*{(b) Instantiate for GPT-2 XL and max batch size on 80GB}
+\answer
+\placeholder{Provide expression of form $a \cdot \text{batch\_size} + b$ and max batch size.}
+
+\subsection*{(c) FLOPs for one AdamW step}
+\answer
+\placeholder{Provide algebraic expression with brief justification.}
+
+\subsection*{(d) Training time estimate with 50\% MFU on H100}
+\answer
+\placeholder{Provide hours required with brief justification.}
+
+\section{Problem \texttt{experiment\_log}: Experiment Logging}
+\answer
+\placeholder{Reference your logging setup and summarize experiment log document.}
+
+\section{Problem \texttt{learning\_rate}: Tune the Learning Rate}
+\subsection*{(a) Learning-rate sweep}
+\answer
+\placeholder{Include learning curves and explain your hyperparameter search strategy.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert LR sweep learning-curve plot(s) here.}\vspace{2.5cm}}}
+  \caption{Learning-rate sweep on TinyStories.}
+\end{figure}
+
+\paragraph{Target model result}
+\placeholder{Record the run achieving TinyStories validation loss $\leq 1.45$ (or your adjusted target for low-resource setting).}
+
+\subsection*{(b) ``Edge of stability'' analysis}
+\answer
+\placeholder{Include curves with at least one divergent run and discuss relation to best LR/convergence speed.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert increasing-LR / divergence plot(s) here.}\vspace{2.5cm}}}
+  \caption{Learning rates near divergence.}
+\end{figure}
+
+\section{Problem \texttt{batch\_size\_experiment}: Batch Size Variations}
+\answer
+\placeholder{Add learning curves for different batch sizes and a short discussion of findings.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert batch-size comparison curves here.}\vspace{2.5cm}}}
+  \caption{Batch size ablation results.}
+\end{figure}
+
+\section{Problem \texttt{generate}: Generate Text}
+\subsection*{Generated text dump}
+\placeholder{Paste at least 256 tokens of generated text (or up to first \texttt{<|endoftext|>}).}
+
+\subsection*{Commentary on fluency and quality factors}
+\answer
+\placeholder{Briefly discuss fluency and at least two factors affecting output quality.}
+
+\section{Problem \texttt{layer\_norm\_ablation}: Remove RMSNorm and Train}
+\answer
+\placeholder{Include learning curves and short commentary on RMSNorm impact.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert no-RMSNorm and tuned-LR curves here.}\vspace{2.5cm}}}
+  \caption{RMSNorm ablation results.}
+\end{figure}
+
+\section{Problem \texttt{pre\_norm\_ablation}: Post-Norm vs Pre-Norm}
+\answer
+\placeholder{Include learning curve comparing post-norm and pre-norm Transformers.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert post-norm vs pre-norm curve here.}\vspace{2.5cm}}}
+  \caption{Post-norm versus pre-norm comparison.}
+\end{figure}
+
+\section{Problem \texttt{swiglu\_ablation}: SwiGLU vs SiLU}
+\answer
+\placeholder{Include learning-curve comparison and a few sentences discussing findings.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert SwiGLU vs SiLU learning curves here.}\vspace{2.5cm}}}
+  \caption{SwiGLU vs SiLU ablation.}
+\end{figure}
+
+\section{Problem \texttt{main\_experiment}: Experiment on OpenWebText}
+\subsection*{Learning curve and TinyStories-vs-OWT loss interpretation}
+\answer
+\placeholder{Add the OWT learning curve and describe how to interpret losses versus TinyStories.}
+
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert OpenWebText learning curve here.}\vspace{2.5cm}}}
+  \caption{OpenWebText training/validation curves.}
+\end{figure}
+
+\subsection*{Generated OpenWebText output and fluency discussion}
+\placeholder{Paste generated text in the same format as TinyStories outputs.}
+
+\answer
+\placeholder{Briefly explain output fluency and why quality may be worse with same model/compute budget.}
+
+\section{Problem \texttt{leaderboard}: Leaderboard Submission}
+\subsection*{Final result}
+\answer
+\placeholder{Report final validation loss and summarize modifications/hyperparameters you used.}
+
+\subsection*{Learning curve with wall-clock axis (<45 min)}
+\begin{figure}[h]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{2.5cm}\placeholder{Insert leaderboard run curve with wall-clock x-axis here.}\vspace{2.5cm}}}
+  \caption{Leaderboard run (wall-clock axis).}
+\end{figure}
+
+\section*{Optional Appendix}
+\placeholder{Use this section for extra tables, derivations, and additional plots.}
+
+\end{document}

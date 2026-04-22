@@ -1,5 +1,8 @@
 import multiprocessing as mp
 import os
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import regex as re
 
@@ -19,6 +22,52 @@ def _pre_tokenize_chunk(texts: list[str], special_tokens: tuple[str, ...]) -> li
         tokenized_chunk.extend(m.group(0) for m in re.finditer(PRETOKEN_PATTERN, text))
 
     return tokenized_chunk
+
+
+def pre_tokenize(
+    text: str,
+    special_tokens: list[str],
+    num_processes: int | None = None,
+    min_parallel_chunks: int = 1024,
+) -> list[str]:
+    if text == "":
+        return []
+
+    if not special_tokens:
+        texts = [text]
+    else:
+        pattern = "|".join(re.escape(token) for token in sorted(special_tokens, key=len, reverse=True))
+        texts = re.split(f"({pattern})", text)
+    special_tokens_tuple = tuple(special_tokens)
+    if num_processes is None:
+        num_processes = os.cpu_count() or 1
+    if num_processes <= 1 or len(texts) < min_parallel_chunks:
+        return _pre_tokenize_chunk(texts, special_tokens_tuple)
+
+    # Build units that only end at special tokens.
+    special_tokens_set = set(special_tokens)
+    units: list[list[str]] = []
+    current_unit: list[str] = []
+    for token in texts:
+        current_unit.append(token)
+        if token in special_tokens_set:
+            units.append(current_unit)
+            current_unit = []
+    if current_unit:
+        units.append(current_unit)
+
+    if len(units) <= 1:
+        return _pre_tokenize_chunk(texts, special_tokens_tuple)
+
+    with mp.Pool(processes=min(num_processes, len(units))) as pool:
+        chunk_results = pool.starmap(
+            _pre_tokenize_chunk, [(unit, special_tokens_tuple) for unit in units]
+        )
+
+    pretokenized: list[str] = []
+    for chunk_tokens in chunk_results:
+        pretokenized.extend(chunk_tokens)
+    return pretokenized
 
 
 class BPE_Tokenizer:
@@ -48,48 +97,11 @@ class BPE_Tokenizer:
 
 
     def split_by_special_tokens(self, text: str) -> list[str]:
-        pattern = "|".join(re.escape(token) for token in self.special_tokens)
+        if not self.special_tokens:
+            return [text]
+        pattern = "|".join(re.escape(token) for token in sorted(self.special_tokens, key=len, reverse=True))
         chunks = re.split(f"({pattern})", text)
         return chunks
-
-    def pre_tokenize(
-        self,
-        text: str,
-        num_processes: int | None = None,
-        min_parallel_chunks: int = 1024,
-    ) -> list[str]:
-        if text == "":
-            return []
-
-        texts = self.split_by_special_tokens(text)
-        special_tokens = tuple(self.special_tokens)
-        if num_processes is None:
-            num_processes = os.cpu_count() or 1
-        if num_processes <= 1 or len(texts) < min_parallel_chunks:
-            return _pre_tokenize_chunk(texts, special_tokens)
-
-        # Build units that only end at special tokens.
-        special_tokens_set = set(self.special_tokens)
-        units: list[list[str]] = []
-        current_unit: list[str] = []
-        for token in texts:
-            current_unit.append(token)
-            if token in special_tokens_set:
-                units.append(current_unit)
-                current_unit = []
-        if current_unit:
-            units.append(current_unit)
-
-        if len(units) <= 1:
-            return _pre_tokenize_chunk(texts, special_tokens)
-
-        with mp.Pool(processes=min(num_processes, len(units))) as pool:
-            chunk_results = pool.starmap(_pre_tokenize_chunk, [(unit, special_tokens) for unit in units])
-
-        pretokenized: list[str] = []
-        for chunk_tokens in chunk_results:
-            pretokenized.extend(chunk_tokens)
-        return pretokenized
 
     def count_words(self, tokenized_text: list[str]) -> dict[tuple[bytes, ...], int]:
         word_counts: dict[tuple[bytes, ...], int] = {}
@@ -179,30 +191,105 @@ class BPE_Tokenizer:
 
         return new_pair_counts
 
-    def train(self, file_path: str, max_vocab_size: int):
-        with open(file_path, "r", encoding="utf-8") as file:
+    def train(
+        self,
+        file_path: str,
+        max_vocab_size: int,
+        progress_every: int | None = None,
+        progress_interval_seconds: float | None = None,
+        include_timestamps: bool = False,
+        progress_callback: Callable[[str], None] | None = None,
+    ):
+        with open(file_path, encoding="utf-8") as file:
             text = file.read()
-        pre_tokenized_text = self.pre_tokenize(text)
+        pre_tokenized_text = pre_tokenize(text, self.special_tokens)
         pre_tokenized_counts = self.count_words(pre_tokenized_text)
         token_counts = pre_tokenized_counts
         pair_counts = self.initial_pair_counts(token_counts)
+        start_time = time.perf_counter()
+        initial_vocab_size = len(self.vocabulary)
+        target_merges = max(0, max_vocab_size - initial_vocab_size)
+
+        def emit_progress(message: str) -> None:
+            if include_timestamps:
+                timestamp = datetime.now(UTC).isoformat(timespec="seconds")
+                message = f"[{timestamp}] {message}"
+            if progress_callback is not None:
+                progress_callback(message)
+            else:
+                print(message)
+
+        emit_progress(
+            f"[train] start vocab={initial_vocab_size} target_vocab={max_vocab_size} "
+            f"target_merges={target_merges}"
+        )
+        last_progress_log_time = start_time
         while len(self.vocabulary) < max_vocab_size:
             best_pair, highest_count = max(
-            pair_counts.items(), 
+                pair_counts.items(),
                 key=lambda item: (item[1], item[0])
             )
             self._add_merge(best_pair[0], best_pair[1])
             new_word = best_pair[0] + best_pair[1]
-            # print(f'Merge {new_word}')
             self._add_to_vocab(new_word)
             token_counts = self.merge_tokens_words_element(best_pair, token_counts)
             pair_counts = self.update_word_pairs(best_pair, pair_counts, token_counts)
-        print("Vocab size reached.")
-    
+            merges_completed = len(self.vocabulary) - initial_vocab_size
+            now = time.perf_counter()
+            merge_boundary = (
+                progress_every is not None
+                and progress_every > 0
+                and (merges_completed % progress_every == 0 or merges_completed == target_merges)
+            )
+            time_boundary = (
+                progress_interval_seconds is not None
+                and progress_interval_seconds > 0
+                and (now - last_progress_log_time >= progress_interval_seconds or merges_completed == target_merges)
+            )
+            if merge_boundary or time_boundary:
+                elapsed_s = now - start_time
+                merge_rate = merges_completed / elapsed_s if elapsed_s > 0 else 0.0
+                remaining_merges = max(0, target_merges - merges_completed)
+                eta_s = remaining_merges / merge_rate if merge_rate > 0 else float("inf")
+                eta_text = f"{eta_s / 60:.1f}m" if eta_s != float("inf") else "unknown"
+                projected_finish_utc = (
+                    (datetime.now(UTC) + timedelta(seconds=eta_s)).isoformat(timespec="seconds")
+                    if eta_s != float("inf")
+                    else "unknown"
+                )
+                emit_progress(
+                    f"[train] merges={merges_completed}/{target_merges} "
+                    f"vocab={len(self.vocabulary)}/{max_vocab_size} "
+                    f"best_pair_count={highest_count} "
+                    f"elapsed={elapsed_s / 60:.1f}m eta={eta_text} "
+                    f"projected_finish_utc={projected_finish_utc} "
+                    f"rate={merge_rate:.2f} merges/s"
+                )
+                last_progress_log_time = now
+        total_elapsed_s = time.perf_counter() - start_time
+        emit_progress(
+            f"[train] done vocab={len(self.vocabulary)} elapsed={total_elapsed_s / 60:.1f}m"
+        )
 
-def train_bpe(input_path, vocab_size, special_tokens):
+
+def train_bpe(
+    input_path: str,
+    vocab_size: int,
+    special_tokens: list[str],
+    progress_every: int | None = None,
+    progress_interval_seconds: float | None = None,
+    include_timestamps: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
+):
     bpe_tokenizer = BPE_Tokenizer(special_tokens)
-    bpe_tokenizer.train(input_path, vocab_size)
+    bpe_tokenizer.train(
+        input_path,
+        vocab_size,
+        progress_every=progress_every,
+        progress_interval_seconds=progress_interval_seconds,
+        include_timestamps=include_timestamps,
+        progress_callback=progress_callback,
+    )
     vocab = bpe_tokenizer.vocabulary
     merges = bpe_tokenizer.merges
     return vocab, merges

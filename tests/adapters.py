@@ -29,7 +29,19 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    import importlib
+
+    linear_module = importlib.import_module("cs336_basics.3_1_linear")
+    linear_cls = getattr(linear_module, "Linear")
+
+    linear = linear_cls(
+        in_features=d_in,
+        out_features=d_out,
+        device=weights.device,
+        dtype=weights.dtype,
+    )
+    linear.load_state_dict({"w": weights})
+    return linear(in_features)
 
 
 def run_embedding(
@@ -51,7 +63,19 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    import importlib
+
+    embedding_module = importlib.import_module("cs336_basics.3_2_embedding")
+    embedding_cls = getattr(embedding_module, "Embedding")
+
+    embedding = embedding_cls(
+        num_embeddings=vocab_size,
+        embedding_dim=d_model,
+        device=weights.device,
+        dtype=weights.dtype,
+    )
+    embedding.load_state_dict({"embedding_matrix": weights})
+    return embedding(token_ids)
 
 
 def run_swiglu(
@@ -76,14 +100,39 @@ def run_swiglu(
     Returns:
         Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
     """
-    # Example:
-    # If your state dict keys match, you can use `load_state_dict()`
-    # swiglu.load_state_dict(weights)
-    # You can also manually assign the weights
-    # swiglu.w1.weight.data = w1_weight
-    # swiglu.w2.weight.data = w2_weight
-    # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    import importlib
+
+    swiglu_module = importlib.import_module("cs336_basics.3_3_pre_norm_transformer_block")
+    swiglu_cls = getattr(swiglu_module, "PositionwiseFeedForward")
+
+    try:
+        swiglu = swiglu_cls(
+            d_model=d_model,
+            d_ff=d_ff,
+            device=w1_weight.device,
+            dtype=w1_weight.dtype,
+        )
+    except TypeError:
+        swiglu = swiglu_cls(
+            d_model=d_model,
+            device=w1_weight.device,
+            dtype=w1_weight.dtype,
+        )
+
+    def _set_weight(layer: torch.nn.Module, weight: Tensor) -> None:
+        if hasattr(layer, "weight"):
+            layer.weight.data = weight
+            return
+        if hasattr(layer, "w"):
+            layer.w.data = weight
+            return
+        raise AttributeError("Expected a layer with `weight` or `w` parameter.")
+
+    _set_weight(swiglu.w1, w1_weight)
+    _set_weight(swiglu.w2, w2_weight)
+    _set_weight(swiglu.w3, w3_weight)
+
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -378,7 +427,19 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    import importlib
+
+    rmsnorm_module = importlib.import_module("cs336_basics.3_3_pre_norm_transformer_block")
+    rmsnorm_cls = getattr(rmsnorm_module, "RMSNorm")
+
+    rmsnorm = rmsnorm_cls(
+        d_model=d_model,
+        eps=eps,
+        device=weights.device,
+        dtype=weights.dtype,
+    )
+    rmsnorm.load_state_dict({"g": weights})
+    return rmsnorm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -559,7 +620,11 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    import importlib
+
+    tokenizer_module = importlib.import_module("cs336_basics.2_4_tokenizer")
+    tokenizer_cls = getattr(tokenizer_module, "Tokenizer")
+    return tokenizer_cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 
 def run_train_bpe(

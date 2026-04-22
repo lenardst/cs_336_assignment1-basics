@@ -1,0 +1,97 @@
+import pickle
+from typing import Iterable, Iterator
+from cs336_basics.bpe_tokenizer import pre_tokenize
+
+def read_with_sequence_boundary(iterable: Iterable[str], delimiters):
+    remainder = ""
+    for chunk in iterable:
+        current_data = remainder + chunk
+        best_split_index = -1
+        best_delim_len = 0
+        for delim in delimiters:
+            idx = current_data.rfind(delim)
+            if idx > best_split_index:
+                best_split_index = idx
+                best_delim_len = len(delim)
+        if best_split_index != -1:
+            split_point = best_split_index + best_delim_len
+            yield current_data[:split_point]
+            remainder = current_data[split_point:]
+        else:
+            remainder = current_data
+    if remainder:
+        yield remainder
+
+class Tokenizer:
+    def __init__(
+        self,
+        vocab: dict[int, bytes],
+        merges: list[tuple[bytes, bytes]],
+        special_tokens: list[str] | None = None,
+    ) -> None:
+        self.vocab = vocab
+        self.merges = merges
+        self.special_tokens = special_tokens or []
+        self.token_to_id = {token_bytes: token_id for token_id, token_bytes in self.vocab.items()}
+
+    @classmethod
+    def from_files(
+        cls,
+        vocab_filepath: str,
+        merges_filepath: str,
+        special_tokens: list[str] | None = None,
+    ) -> "Tokenizer":
+        with open(vocab_filepath, 'rb') as file:
+            vocab = pickle.load(file)
+        with open(merges_filepath, 'rb') as file:
+            merges = pickle.load(file)
+        if special_tokens:
+            for special_token in special_tokens:
+                encoded_special_token = special_token.encode("utf-8")
+                if encoded_special_token not in vocab.values():
+                    key =  max(vocab.keys()) + 1
+                    vocab[key] = encoded_special_token
+        return cls(vocab, merges, special_tokens)
+
+    def encode(self, text: str) -> list[int]:
+        pretokenized = pre_tokenize(text, self.special_tokens)
+        special_tokens_set = set(self.special_tokens)
+        encoded_ids: list[int] = []
+
+        for piece in pretokenized:
+            if piece in special_tokens_set:
+                token_bytes = [piece.encode("utf-8")]
+            else:
+                token_bytes = [bytes([b]) for b in piece.encode("utf-8")]
+
+            for first, second in self.merges:
+                i = 0
+                merged_tokens: list[bytes] = []
+                while i < len(token_bytes):
+                    if (
+                        i + 1 < len(token_bytes)
+                        and token_bytes[i] == first
+                        and token_bytes[i + 1] == second
+                    ):
+                        merged_tokens.append(first + second)
+                        i += 2
+                    else:
+                        merged_tokens.append(token_bytes[i])
+                        i += 1
+                token_bytes = merged_tokens
+
+            for token in token_bytes:
+                token_id = self.token_to_id.get(token)
+                if token_id is None:
+                    raise ValueError(f"Token {token!r} not found in vocabulary.")
+                encoded_ids.append(token_id)
+        return encoded_ids
+
+    def encode_iterable(self, iterable:Iterable[str]) -> Iterator[int]:
+        for chunk in read_with_sequence_boundary(iterable, delimiters=self.special_tokens):
+            yield from self.encode(chunk)
+
+
+    def decode(self, ids: list[int]) -> str:
+        bytes_out = b"".join(self.vocab[token_id] for token_id in ids)
+        return bytes_out.decode("utf-8", errors="replace")
