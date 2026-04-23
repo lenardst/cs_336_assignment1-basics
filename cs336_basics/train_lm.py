@@ -47,8 +47,8 @@ DEFAULTS = {
     "max_grad_norm": 1.0,
     "eval_interval": 200,
     "eval_batches": 20,
-    "checkpoint_interval": 10,
-    "train_log_interval": 20,
+    "checkpoint_interval": 5000,
+    "train_log_interval": 100,
 }
 
 APP_NAME = "train-lm"
