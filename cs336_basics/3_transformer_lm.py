@@ -171,6 +171,8 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         self,
         d_model: int,
         num_heads: int,
+        rope_theta: float = 1000.0,
+        max_seq_len: int = 4096,
         device=None,
         dtype=None,
     ) -> None:
@@ -191,7 +193,7 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         self.wv = Linear(num_heads * d_v, d_model, device=device, dtype=dtype)
         self.wo = Linear(d_model, num_heads * d_v, device=device, dtype=dtype)
 
-        self.rope = RotaryPositionalEmbedding(1000, d_k, 4096, device=device)
+        self.rope = RotaryPositionalEmbedding(rope_theta, d_k, max_seq_len, device=device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         seq_len = x.shape[1]
@@ -239,8 +241,14 @@ class TransformerBlock(torch.nn.Module):
         self.device = device
         self.dtype = dtype
 
-        self.attn = CausalMultiHeadSelfAttention(d_model, num_heads, device = device, dtype = dtype)
-        self.attn.rope = RotaryPositionalEmbedding(theta, d_model // num_heads, max_seq_len, device = device)
+        self.attn = CausalMultiHeadSelfAttention(
+            d_model,
+            num_heads,
+            rope_theta=theta,
+            max_seq_len=max_seq_len,
+            device=device,
+            dtype=dtype,
+        )
 
         self.ln1 = RMSNorm(d_model, eps = eps, device = device, dtype = dtype)
         self.ln2 = RMSNorm(d_model, eps = eps, device = device, dtype = dtype)
