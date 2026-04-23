@@ -143,10 +143,25 @@ Total FLOPs in one forward pass:
 \]
 
 \subsection*{(c)}
-\placeholder{One-to-two sentence response on highest-FLOP components.}
+The PositionwiseFeedForward requires a lot of FLOPs (14,050,918,400 x 3 = 42,152,755,200) which is more than 4 times more than the CausalMultiHeadSelfAttention (3,355,443,200 * 2 + 5,242,880,000 = 11,953,766,400).
 
 \subsection*{(d)}
-\placeholder{FLOP breakdowns for GPT-2 small/medium/large + short trend analysis.}
+Using the same accounting as above the FLOP proportions are:
+
+\begin{center}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Model & QKV & Attn scores & Attn value & Attn out & FFN W1/W3 & FFN W2 & Final proj \\
+\midrule
+GPT-2 small  & 14.91\% & 6.63\% & 6.63\% & 4.97\% & 26.51\% & 13.25\% & 27.10\% \\
+GPT-2 medium & 18.62\% & 6.21\% & 6.21\% & 6.21\% & 33.37\% & 16.68\% & 12.70\% \\
+GPT-2 large  & 20.49\% & 5.46\% & 5.46\% & 6.83\% & 36.20\% & 18.10\% & 7.45\% \\
+GPT-2 XL     & 21.47\% & 4.58\% & 4.58\% & 7.16\% & 38.36\% & 19.18\% & 4.68\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+As model size increases, FFN and projection-heavy terms take a larger share of total FLOPs, while the final vocab projection takes a much smaller share. The attention score/value terms decrease proportionally here because \(T\) is fixed and \(d\)-/depth-driven terms grow faster.
 
 \subsection*{(e)}
 \placeholder{One-to-two sentence response for context length 16,384 scaling effects.}
