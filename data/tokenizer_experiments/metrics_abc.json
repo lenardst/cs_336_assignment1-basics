@@ -1,0 +1,74 @@
+{
+  "config": {
+    "tiny_train": "/root/workspace/data/TinyStoriesV2-GPT4-train.txt",
+    "tiny_valid": "/root/workspace/data/TinyStoriesV2-GPT4-valid.txt",
+    "owt_train": "/root/workspace/data/owt_train.txt",
+    "owt_valid": "/root/workspace/data/owt_valid.txt",
+    "tiny_vocab": "/root/workspace/data/tinystories_vocab_10000.pkl",
+    "tiny_merges": "/root/workspace/data/tinystories_merges_10000.pkl",
+    "owt_vocab": "/root/workspace/data/owt_vocab_32000.pkl",
+    "owt_merges": "/root/workspace/data/owt_merges_32000.pkl",
+    "special_token": "<|endoftext|>",
+    "document_delimiter": "<|endoftext|>",
+    "n_sample_docs": 10,
+    "seed": 42,
+    "chunk_chars": 2000000,
+    "throughput_min_bytes": 5000000,
+    "skip_dataset_encoding": true
+  },
+  "sampling": {
+    "tiny_documents_seen": 10,
+    "owt_documents_seen": 10,
+    "tiny_sampled_docs_count": 10,
+    "owt_sampled_docs_count": 10
+  },
+  "part_a": {
+    "tiny_tokenizer_on_tiny_sample": {
+      "total_bytes": 7412.0,
+      "total_tokens": 1786.0,
+      "bytes_per_token": 4.150055991041433
+    },
+    "owt_tokenizer_on_owt_sample": {
+      "total_bytes": 31487.0,
+      "total_tokens": 6728.0,
+      "bytes_per_token": 4.67999405469679
+    }
+  },
+  "part_b": {
+    "tiny_tokenizer_on_owt_sample": {
+      "total_bytes": 31487.0,
+      "total_tokens": 9963.0,
+      "bytes_per_token": 3.1603934557864095
+    },
+    "owt_tokenizer_on_owt_sample": {
+      "total_bytes": 31487.0,
+      "total_tokens": 6728.0,
+      "bytes_per_token": 4.67999405469679
+    },
+    "delta_bytes_per_token_cross_minus_native": -1.5196005989103805
+  },
+  "part_c": {
+    "tiny_tokenizer_throughput": {
+      "benchmarked_bytes": 5000030.0,
+      "benchmarked_tokens": 1219762.0,
+      "elapsed_seconds": 1.2971012219995828,
+      "bytes_per_second": 3854772.407269853
+    },
+    "owt_tokenizer_throughput": {
+      "benchmarked_bytes": 5005121.0,
+      "benchmarked_tokens": 1146728.0,
+      "elapsed_seconds": 2.4517487029997937,
+      "bytes_per_second": 2041449.4331642035
+    },
+    "pile_estimate_seconds_tiny": 214020.41750742611,
+    "pile_estimate_hours_tiny": 59.45011597428503,
+    "pile_estimate_days_tiny": 2.4770881655952097,
+    "pile_estimate_seconds_owt": 404124.6315473352,
+    "pile_estimate_hours_owt": 112.25684209648199,
+    "pile_estimate_days_owt": 4.67736842068675
+  },
+  "part_d": {
+    "status": "skipped",
+    "uint16_justification": "uint16 is appropriate because both vocabularies are < 65,536 tokens (10k and 32k), so every token ID fits exactly while using half the memory of int32."
+  }
+}

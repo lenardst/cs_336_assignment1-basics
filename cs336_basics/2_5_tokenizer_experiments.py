@@ -1,276 +1,59 @@
 import importlib
 import json
-import os
-import subprocess
-import sys
-import time
-from pathlib import Path
-from typing import Any, Iterable, Iterator
-
-import numpy as np
-
-# Minimal configuration.
-SPECIAL_TOKEN = "<|endoftext|>"
-DOC_DELIMITER = "<|endoftext|>"
-N_SAMPLE_DOCS = 10
-CHUNK_CHARS = 2_000_000
-THROUGHPUT_MIN_BYTES = 50_000_000
-PILE_BYTES = 825_000_000_000  # 825 GB
-
-TINY_TRAIN = Path("data/TinyStoriesV2-GPT4-train.txt")
-TINY_VALID = Path("data/TinyStoriesV2-GPT4-valid.txt")
-OWT_TRAIN = Path("data/owt_train.txt")
-OWT_VALID = Path("data/owt_valid.txt")
-
-TINY_VOCAB = Path("data/tinystories_vocab_10000.pkl")
-TINY_MERGES = Path("data/tinystories_merges_10000.pkl")
-OWT_VOCAB = Path("data/owt_vocab_32000.pkl")
-OWT_MERGES = Path("data/owt_merges_32000.pkl")
-
-OUT_DIR = Path("data/tokenizer_experiments")
-LOG_PATH = OUT_DIR / "metrics.log"
-JSON_PATH = OUT_DIR / "metrics.json"
-
-
-def iter_text_chunks(path: Path, chunk_chars: int = CHUNK_CHARS) -> Iterator[str]:
-    with path.open("r", encoding="utf-8") as file:
-        while True:
-            chunk = file.read(chunk_chars)
-            if not chunk:
-                break
-            yield chunk
-
-
-def iter_documents(path: Path, delimiter: str = DOC_DELIMITER) -> Iterator[str]:
-    remainder = ""
-    for chunk in iter_text_chunks(path):
-        text = remainder + chunk
-        parts = text.split(delimiter)
-        for part in parts[:-1]:
-            doc = part.strip()
-            if doc:
-                yield doc
-        remainder = parts[-1]
-    doc = remainder.strip()
-    if doc:
-        yield doc
-
-
-def sample_first_n_documents(path: Path, n: int = N_SAMPLE_DOCS) -> list[str]:
-    docs: list[str] = []
-    for doc in iter_documents(path):
-        docs.append(doc)
-        if len(docs) >= n:
-            break
-    return docs
-
-
-def load_tokenizer(vocab_path: Path, merges_path: Path) -> Any:
-    tokenizer_module = importlib.import_module("cs336_basics.2_4_tokenizer")
-    tokenizer_cls = getattr(tokenizer_module, "Tokenizer")
-    return tokenizer_cls.from_files(
-        vocab_filepath=str(vocab_path),
-        merges_filepath=str(merges_path),
-        special_tokens=[SPECIAL_TOKEN],
-    )
-
-
-def compression_ratio(tokenizer: Any, docs: list[str]) -> dict[str, float]:
-    total_bytes = 0
-    total_tokens = 0
-    for doc in docs:
-        total_bytes += len(doc.encode("utf-8"))
-        total_tokens += len(tokenizer.encode(doc))
-    return {
-        "total_bytes": float(total_bytes),
-        "total_tokens": float(total_tokens),
-        "bytes_per_token": float("inf") if total_tokens == 0 else total_bytes / total_tokens,
-    }
-
-
-def throughput_bytes_per_second(tokenizer: Any, input_path: Path) -> dict[str, float]:
-    processed_bytes = 0
-    processed_tokens = 0
-    start = time.perf_counter()
-    for doc in iter_documents(input_path):
-        processed_bytes += len(doc.encode("utf-8"))
-        processed_tokens += len(tokenizer.encode(doc))
-        if processed_bytes >= THROUGHPUT_MIN_BYTES:
-            break
-    elapsed = time.perf_counter() - start
-    bps = 0.0 if elapsed == 0 else processed_bytes / elapsed
-    return {
-        "benchmarked_bytes": float(processed_bytes),
-        "benchmarked_tokens": float(processed_tokens),
-        "elapsed_seconds": elapsed,
-        "bytes_per_second": bps,
-    }
-
-
-def count_tokens(token_ids: Iterable[int]) -> tuple[int, int]:
-    count = 0
-    max_token_id = -1
-    for token_id in token_ids:
-        count += 1
-        if token_id > max_token_id:
-            max_token_id = token_id
-    return count, max_token_id
-
-
-def write_uint16_npy(token_ids: Iterable[int], output_path: Path, n_tokens: int) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    arr = np.lib.format.open_memmap(output_path, mode="w+", dtype=np.uint16, shape=(n_tokens,))
-    i = 0
-    for token_id in token_ids:
-        arr[i] = token_id
-        i += 1
-    del arr
-
-
-def encode_dataset(tokenizer: Any, input_path: Path, output_path: Path) -> dict[str, float | int | str]:
-    start = time.perf_counter()
-    ids_for_count = tokenizer.encode_iterable(iter_text_chunks(input_path))
-    n_tokens, max_token_id = count_tokens(ids_for_count)
-    if max_token_id > np.iinfo(np.uint16).max:
-        raise ValueError(f"Token id {max_token_id} does not fit in uint16")
-    ids_for_write = tokenizer.encode_iterable(iter_text_chunks(input_path))
-    write_uint16_npy(ids_for_write, output_path, n_tokens)
-    elapsed = time.perf_counter() - start
-    return {
-        "input_path": str(input_path),
-        "output_path": str(output_path),
-        "tokens": n_tokens,
-        "max_token_id": max_token_id,
-        "elapsed_seconds": elapsed,
-    }
-
-
-def ensure_paths_exist(paths: list[Path]) -> None:
-    for path in paths:
-        if not path.exists():
-            raise FileNotFoundError(f"Missing required path: {path}")
-
-
-def main() -> None:
-    if os.environ.get("TOKENIZER_EXPERIMENTS_WORKER") != "1":
-        worker_env = os.environ.copy()
-        worker_env["TOKENIZER_EXPERIMENTS_WORKER"] = "1"
-        worker = subprocess.Popen(
-            [sys.executable, str(Path(__file__))],
-            env=worker_env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        print("Submitted tokenizer experiments asynchronously.")
-        print(f"Worker PID: {worker.pid}")
-        return
-
-    ensure_paths_exist(
-        [
-            TINY_TRAIN,
-            TINY_VALID,
-            OWT_TRAIN,
-            OWT_VALID,
-            TINY_VOCAB,
-            TINY_MERGES,
-            OWT_VOCAB,
-            OWT_MERGES,
-        ]
-    )
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    tiny_tokenizer = load_tokenizer(TINY_VOCAB, TINY_MERGES)
-    owt_tokenizer = load_tokenizer(OWT_VOCAB, OWT_MERGES)
-
-    tiny_docs = sample_first_n_documents(TINY_TRAIN)
-    owt_docs = sample_first_n_documents(OWT_TRAIN)
-
-    part_a_tiny = compression_ratio(tiny_tokenizer, tiny_docs)
-    part_a_owt = compression_ratio(owt_tokenizer, owt_docs)
-    part_b_cross = compression_ratio(tiny_tokenizer, owt_docs)
-
-    tiny_tput = throughput_bytes_per_second(tiny_tokenizer, TINY_TRAIN)
-    owt_tput = throughput_bytes_per_second(owt_tokenizer, OWT_TRAIN)
-
-    pile_days_tiny = (PILE_BYTES / tiny_tput["bytes_per_second"]) / (3600 * 24)
-    pile_days_owt = (PILE_BYTES / owt_tput["bytes_per_second"]) / (3600 * 24)
-
-    enc_tiny_train = encode_dataset(tiny_tokenizer, TINY_TRAIN, OUT_DIR / "tiny_train_uint16.npy")
-    enc_tiny_valid = encode_dataset(tiny_tokenizer, TINY_VALID, OUT_DIR / "tiny_valid_uint16.npy")
-    enc_owt_train = encode_dataset(owt_tokenizer, OWT_TRAIN, OUT_DIR / "owt_train_uint16.npy")
-    enc_owt_valid = encode_dataset(owt_tokenizer, OWT_VALID, OUT_DIR / "owt_valid_uint16.npy")
-
-    results = {
-        "part_a": {
-            "tiny_tokenizer_on_tinystories_sample": part_a_tiny,
-            "owt_tokenizer_on_owt_sample": part_a_owt,
-        },
-        "part_b": {
-            "tiny_tokenizer_on_owt_sample": part_b_cross,
-            "owt_tokenizer_on_owt_sample": part_a_owt,
-            "delta_bytes_per_token_cross_minus_native": (
-                part_b_cross["bytes_per_token"] - part_a_owt["bytes_per_token"]
-            ),
-        },
-        "part_c": {
-            "tiny_bytes_per_second": tiny_tput["bytes_per_second"],
-            "owt_bytes_per_second": owt_tput["bytes_per_second"],
-            "pile_days_tiny": pile_days_tiny,
-            "pile_days_owt": pile_days_owt,
-        },
-        "part_d": {
-            "encoded": {
-                "tiny_train": enc_tiny_train,
-                "tiny_valid": enc_tiny_valid,
-                "owt_train": enc_owt_train,
-                "owt_valid": enc_owt_valid,
-            },
-            "uint16_justification": (
-                "uint16 is appropriate because both vocabularies (10k and 32k) "
-                "are below 65,536 token IDs."
-            ),
-        },
-    }
-
-    with JSON_PATH.open("w", encoding="utf-8") as json_file:
-        json.dump(results, json_file, indent=2)
-
-    lines = [
-        f"(a) TinyStories tokenizer bytes/token on TinyStories sample: {part_a_tiny['bytes_per_token']:.6f}",
-        f"(a) OpenWebText tokenizer bytes/token on OpenWebText sample: {part_a_owt['bytes_per_token']:.6f}",
-        f"(b) TinyStories tokenizer bytes/token on OpenWebText sample: {part_b_cross['bytes_per_token']:.6f}",
-        f"(b) Delta (cross - native): {results['part_b']['delta_bytes_per_token_cross_minus_native']:.6f}",
-        f"(c) TinyStories tokenizer throughput (bytes/s): {tiny_tput['bytes_per_second']:.2f}",
-        f"(c) OpenWebText tokenizer throughput (bytes/s): {owt_tput['bytes_per_second']:.2f}",
-        f"(c) Estimated time for 825GB (TinyStories tokenizer): {pile_days_tiny:.2f} days",
-        f"(c) Estimated time for 825GB (OpenWebText tokenizer): {pile_days_owt:.2f} days",
-        "(d) uint16 is valid because max token ID is < 65536 for both vocabularies.",
-        f"(d) Encoded arrays saved under: {OUT_DIR}",
-    ]
-    with LOG_PATH.open("w", encoding="utf-8") as log_file:
-        log_file.write("\n".join(lines) + "\n")
-
-    print(f"Wrote {LOG_PATH}")
-    print(f"Wrote {JSON_PATH}")
-
-
-if __name__ == "__main__":
-    main()
-import argparse
-import importlib
-import json
 import math
-import random
+import os
 import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+import modal
 import numpy as np
 
+APP_NAME = "tokenizer-experiments"
+DATA_DIR = Path("data")
+TINY_TRAIN = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
+TINY_VALID = DATA_DIR / "TinyStoriesV2-GPT4-valid.txt"
+OWT_TRAIN = DATA_DIR / "owt_train.txt"
+OWT_VALID = DATA_DIR / "owt_valid.txt"
+TINY_VOCAB = DATA_DIR / "tinystories_vocab_10000.pkl"
+TINY_MERGES = DATA_DIR / "tinystories_merges_10000.pkl"
+OWT_VOCAB = DATA_DIR / "owt_vocab_32000.pkl"
+OWT_MERGES = DATA_DIR / "owt_merges_32000.pkl"
+
+SPECIAL_TOKEN = "<|endoftext|>"
+DOC_DELIMITER = "<|endoftext|>"
 PILE_BYTES = 825_000_000_000  # 825 GB, decimal units.
+
+OUTPUT_VOLUME_NAME = "cs336-tokenizer-experiments"
+REMOTE_WORKDIR = "/root/workspace"
+REMOTE_DATA_DIR = f"{REMOTE_WORKDIR}/data"
+REMOTE_OUTPUT_DIR = "/tokenizer_experiments_outputs"
+ABC_LOG_FILENAME = "metrics_abc.log"
+ABC_JSON_FILENAME = "metrics_abc.json"
+PROGRESS_LOG_FILENAME = "progress.log"
+DATASET_SHARD_TARGET_CHARS = 50_000_000
+
+TOKENIZER_FILES = {
+    "tiny": (TINY_VOCAB, TINY_MERGES),
+    "owt": (OWT_VOCAB, OWT_MERGES),
+}
+ENCODING_DATASETS = {
+    "tiny_train": (TINY_TRAIN, "tiny"),
+    "tiny_valid": (TINY_VALID, "tiny"),
+    "owt_train": (OWT_TRAIN, "owt"),
+    "owt_valid": (OWT_VALID, "owt"),
+}
+_TOKENIZER_CACHE: dict[str, Any] = {}
+
+image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("numpy", "regex")
+    .add_local_python_source("cs336_basics")
+    .add_local_dir(str(DATA_DIR), remote_path=REMOTE_DATA_DIR)
+)
+app = modal.App(APP_NAME)
+output_volume = modal.Volume.from_name(OUTPUT_VOLUME_NAME, create_if_missing=True)
 
 
 def iter_text_chunks(path: Path, chunk_chars: int) -> Iterator[str]:
@@ -304,17 +87,13 @@ def reservoir_sample_documents(
     chunk_chars: int,
     seed: int,
 ) -> tuple[list[str], int]:
-    rng = random.Random(seed)
     sample: list[str] = []
     seen = 0
     for doc in iter_documents(path, delimiter, chunk_chars):
         seen += 1
-        if len(sample) < n_docs:
-            sample.append(doc)
-            continue
-        idx = rng.randint(1, seen)
-        if idx <= n_docs:
-            sample[idx - 1] = doc
+        sample.append(doc)
+        if len(sample) >= n_docs:
+            break
     return sample, seen
 
 
@@ -457,92 +236,317 @@ def load_tokenizer(vocab_path: Path, merges_path: Path, special_tokens: list[str
     )
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run tokenizer experiments for CS336.")
-    parser.add_argument("--tiny-train", type=Path, default=Path("data/TinyStoriesV2-GPT4-train.txt"))
-    parser.add_argument("--tiny-valid", type=Path, default=Path("data/TinyStoriesV2-GPT4-valid.txt"))
-    parser.add_argument("--owt-train", type=Path, default=Path("data/owt_train.txt"))
-    parser.add_argument("--owt-valid", type=Path, default=Path("data/owt_valid.txt"))
-
-    parser.add_argument("--tiny-vocab", type=Path, default=Path("data/tinystories_vocab_10000.pkl"))
-    parser.add_argument("--tiny-merges", type=Path, default=Path("data/tinystories_merges_10000.pkl"))
-    parser.add_argument("--owt-vocab", type=Path, default=Path("data/owt_vocab_32000.pkl"))
-    parser.add_argument("--owt-merges", type=Path, default=Path("data/owt_merges_32000.pkl"))
-
-    parser.add_argument("--special-token", type=str, default="<|endoftext|>")
-    parser.add_argument("--document-delimiter", type=str, default="<|endoftext|>")
-    parser.add_argument("--n-sample-docs", type=int, default=10)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--chunk-chars", type=int, default=2_000_000)
-    parser.add_argument("--throughput-min-bytes", type=int, default=50_000_000)
-    parser.add_argument("--uint16-buffer-tokens", type=int, default=2_000_000)
-
-    parser.add_argument("--output-dir", type=Path, default=Path("data/tokenizer_experiments"))
-    parser.add_argument("--log-file", type=Path, default=Path("data/tokenizer_experiments/metrics.log"))
-    parser.add_argument("--skip-dataset-encoding", action="store_true")
-    return parser
+def _remote_data_path(local_path: Path) -> Path:
+    return Path(REMOTE_DATA_DIR) / local_path.name
 
 
-def main() -> None:
-    parser = build_arg_parser()
-    args = parser.parse_args()
+def _get_tokenizer_cached(tokenizer_key: str) -> Any:
+    tokenizer = _TOKENIZER_CACHE.get(tokenizer_key)
+    if tokenizer is not None:
+        return tokenizer
+    vocab_local_path, merges_local_path = TOKENIZER_FILES[tokenizer_key]
+    tokenizer = load_tokenizer(
+        _remote_data_path(vocab_local_path),
+        _remote_data_path(merges_local_path),
+        [SPECIAL_TOKEN],
+    )
+    _TOKENIZER_CACHE[tokenizer_key] = tokenizer
+    return tokenizer
+
+
+def _build_log_lines(
+    results: dict[str, Any],
+    dataset_encoding_results: dict[str, dict[str, float | int | str]],
+) -> list[str]:
+    tiny_ratio = results["part_a"]["tiny_tokenizer_on_tiny_sample"]
+    owt_ratio = results["part_a"]["owt_tokenizer_on_owt_sample"]
+    cross_ratio = results["part_b"]["tiny_tokenizer_on_owt_sample"]
+    tiny_tput = results["part_c"]["tiny_tokenizer_throughput"]
+    owt_tput = results["part_c"]["owt_tokenizer_throughput"]
+    lines = [
+        "Tokenizer experiment results",
+        "",
+        f"(a) Tiny tokenizer compression (bytes/token): {tiny_ratio['bytes_per_token']:.6f}",
+        f"(a) OWT tokenizer compression (bytes/token): {owt_ratio['bytes_per_token']:.6f}",
+        f"(b) Tiny tokenizer on OWT sample (bytes/token): {cross_ratio['bytes_per_token']:.6f}",
+        (
+            "(b) Delta vs OWT tokenizer on OWT sample "
+            f"(cross - native): {cross_ratio['bytes_per_token'] - owt_ratio['bytes_per_token']:.6f}"
+        ),
+        f"(c) Tiny throughput (bytes/s): {tiny_tput['bytes_per_second']:.2f}",
+        f"(c) OWT throughput (bytes/s): {owt_tput['bytes_per_second']:.2f}",
+        (
+            "(c) Estimated Pile tokenization time with tiny tokenizer: "
+            f"{results['part_c']['pile_estimate_days_tiny']:.2f} days"
+        ),
+        (
+            "(c) Estimated Pile tokenization time with OWT tokenizer: "
+            f"{results['part_c']['pile_estimate_days_owt']:.2f} days"
+        ),
+        "(d) uint16 rationale: vocab sizes 10k and 32k fit in [0, 65535].",
+    ]
+    if dataset_encoding_results:
+        lines.append("")
+        lines.append("Dataset encoding outputs:")
+        for key, value in dataset_encoding_results.items():
+            lines.append(
+                f"- {key}: {value['total_tokens']} tokens -> {value['output_path']} "
+                f"in {value['elapsed_seconds']:.2f}s"
+            )
+    else:
+        lines.append("")
+        lines.append("Dataset encoding pending or skipped.")
+    return lines
+
+
+@app.function(image=image, volumes={REMOTE_OUTPUT_DIR: output_volume}, timeout=24 * 60 * 60)
+def encode_dataset_shard_remote(
+    tokenizer_key: str,
+    shard_input_path: str,
+    shard_output_path: str,
+    chunk_chars: int = 2_000_000,
+) -> dict[str, float | int | str]:
+    os.chdir(REMOTE_WORKDIR)
+    tokenizer = _get_tokenizer_cached(tokenizer_key)
+    result = encode_dataset_file(
+        tokenizer=tokenizer,
+        input_path=Path(shard_input_path),
+        output_path=Path(shard_output_path),
+        chunk_chars=chunk_chars,
+    )
+    output_volume.commit()
+    return result
+
+
+def _split_file_into_delimiter_shards(
+    input_path: Path,
+    shard_dir: Path,
+    delimiter: str,
+    target_chars: int,
+) -> list[Path]:
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    shard_paths: list[Path] = []
+    buffer = ""
+    delimiter_len = len(delimiter)
+    read_size = max(1_000_000, target_chars // 4)
+
+    def flush_shard(text: str, shard_idx: int) -> Path:
+        shard_path = shard_dir / f"shard_{shard_idx:06d}.txt"
+        shard_path.write_text(text, encoding="utf-8")
+        return shard_path
+
+    with input_path.open("r", encoding="utf-8") as input_file:
+        while True:
+            chunk = input_file.read(read_size)
+            if not chunk:
+                break
+            buffer += chunk
+            while len(buffer) >= target_chars:
+                split_idx = buffer.rfind(delimiter, 0, target_chars)
+                if split_idx == -1:
+                    split_idx = buffer.find(delimiter, target_chars)
+                if split_idx == -1:
+                    split_idx = target_chars
+                else:
+                    split_idx += delimiter_len
+                shard_text = buffer[:split_idx]
+                if shard_text:
+                    shard_paths.append(flush_shard(shard_text, len(shard_paths)))
+                buffer = buffer[split_idx:]
+
+    if buffer:
+        shard_paths.append(flush_shard(buffer, len(shard_paths)))
+    if not shard_paths:
+        shard_paths.append(flush_shard("", 0))
+    return shard_paths
+
+
+def _merge_uint16_shards(shard_npy_paths: list[Path], output_path: Path) -> tuple[int, int]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shard_lengths: list[int] = []
+    total_tokens = 0
+    max_token_id = -1
+
+    for shard_npy_path in shard_npy_paths:
+        shard_arr = np.load(shard_npy_path, mmap_mode="r")
+        shard_len = int(shard_arr.shape[0])
+        shard_lengths.append(shard_len)
+        total_tokens += shard_len
+        if shard_len > 0:
+            shard_max = int(shard_arr.max())
+            if shard_max > max_token_id:
+                max_token_id = shard_max
+
+    merged = np.lib.format.open_memmap(output_path, mode="w+", dtype=np.uint16, shape=(total_tokens,))
+    cursor = 0
+    for shard_npy_path, shard_len in zip(shard_npy_paths, shard_lengths):
+        shard_arr = np.load(shard_npy_path, mmap_mode="r")
+        merged[cursor : cursor + shard_len] = shard_arr
+        cursor += shard_len
+    del merged
+    return total_tokens, max_token_id
+
+
+@app.function(image=image, volumes={REMOTE_OUTPUT_DIR: output_volume}, timeout=24 * 60 * 60)
+def encode_one_dataset_remote(
+    dataset_key: str,
+    chunk_chars: int = 2_000_000,
+    shard_target_chars: int = DATASET_SHARD_TARGET_CHARS,
+) -> dict[str, float | int | str]:
+    if dataset_key not in ENCODING_DATASETS:
+        raise ValueError(f"Unknown dataset key: {dataset_key}")
+
+    os.chdir(REMOTE_WORKDIR)
+    local_input_path, tokenizer_key = ENCODING_DATASETS[dataset_key]
+    input_path = _remote_data_path(local_input_path)
+    start = time.perf_counter()
+    shard_dir = Path(REMOTE_OUTPUT_DIR) / f"{dataset_key}_shards"
+    shard_text_paths = _split_file_into_delimiter_shards(
+        input_path=input_path,
+        shard_dir=shard_dir,
+        delimiter=DOC_DELIMITER,
+        target_chars=shard_target_chars,
+    )
+    output_volume.commit()
+    shard_fn = modal.Function.from_name(APP_NAME, "encode_dataset_shard_remote")
+    shard_calls: list[tuple[int, Path, Any]] = []
+    for shard_idx, shard_text_path in enumerate(shard_text_paths):
+        shard_npy_path = shard_dir / f"encoded_{shard_idx:06d}.npy"
+        shard_call = shard_fn.spawn(
+            tokenizer_key=tokenizer_key,
+            shard_input_path=str(shard_text_path),
+            shard_output_path=str(shard_npy_path),
+            chunk_chars=chunk_chars,
+        )
+        shard_calls.append((shard_idx, shard_npy_path, shard_call))
+
+    shard_calls.sort(key=lambda item: item[0])
+    shard_results: list[dict[str, float | int | str]] = []
+    shard_npy_paths: list[Path] = []
+    for _, shard_npy_path, shard_call in shard_calls:
+        shard_results.append(shard_call.get())
+        shard_npy_paths.append(shard_npy_path)
+
+    output_volume.reload()
+    output_path = Path(REMOTE_OUTPUT_DIR) / f"{dataset_key}_uint16.npy"
+    total_tokens, max_token_id = _merge_uint16_shards(shard_npy_paths, output_path)
+    elapsed = time.perf_counter() - start
+    bytes_in = input_path.stat().st_size
+    result: dict[str, float | int | str] = {
+        "input_path": str(input_path),
+        "output_path": str(output_path),
+        "input_bytes": bytes_in,
+        "elapsed_seconds": elapsed,
+        "tokens_per_second": 0.0 if elapsed == 0 else total_tokens / elapsed,
+        "bytes_per_second": 0.0 if elapsed == 0 else bytes_in / elapsed,
+        "total_tokens": total_tokens,
+        "max_token_id": max_token_id,
+        "dtype_max": int(np.iinfo(np.uint16).max),
+        "shard_count": len(shard_text_paths),
+    }
+    result["dataset_key"] = dataset_key
+    result["shards"] = shard_results
+    status_path = Path(REMOTE_OUTPUT_DIR) / f"{dataset_key}_encoding.json"
+    with status_path.open("w", encoding="utf-8") as status_file:
+        json.dump(result, status_file, indent=2)
+    output_volume.commit()
+    return result
+
+
+@app.function(image=image, volumes={REMOTE_OUTPUT_DIR: output_volume}, timeout=24 * 60 * 60)
+def run_tokenizer_experiments_remote(
+    n_sample_docs: int = 10,
+    seed: int = 42,
+    chunk_chars: int = 2_000_000,
+    throughput_min_bytes: int = 5_000_000,
+    skip_dataset_encoding: bool = False,
+) -> str:
+    os.chdir(REMOTE_WORKDIR)
+    tiny_train = _remote_data_path(TINY_TRAIN)
+    tiny_valid = _remote_data_path(TINY_VALID)
+    owt_train = _remote_data_path(OWT_TRAIN)
+    owt_valid = _remote_data_path(OWT_VALID)
+    tiny_vocab = _remote_data_path(TINY_VOCAB)
+    tiny_merges = _remote_data_path(TINY_MERGES)
+    owt_vocab = _remote_data_path(OWT_VOCAB)
+    owt_merges = _remote_data_path(OWT_MERGES)
+    output_dir = Path(REMOTE_OUTPUT_DIR)
+    progress_log_path = output_dir / PROGRESS_LOG_FILENAME
+
+    def log_progress(message: str, commit: bool = False) -> None:
+        line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}"
+        print(line)
+        with progress_log_path.open("a", encoding="utf-8") as progress_file:
+            progress_file.write(line + "\n")
+        if commit:
+            output_volume.commit()
 
     for required_path in [
-        args.tiny_train,
-        args.tiny_valid,
-        args.owt_train,
-        args.owt_valid,
-        args.tiny_vocab,
-        args.tiny_merges,
-        args.owt_vocab,
-        args.owt_merges,
+        tiny_train,
+        tiny_valid,
+        owt_train,
+        owt_valid,
+        tiny_vocab,
+        tiny_merges,
+        owt_vocab,
+        owt_merges,
     ]:
         if not required_path.exists():
             raise FileNotFoundError(
                 f"Missing required path: {required_path}. "
-                "Pass explicit paths via CLI if your files use different names."
+                "Ensure the file exists in the local data/ directory before running Modal."
             )
 
-    output_dir: Path = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    special_tokens = [args.special_token]
+    progress_log_path.write_text("", encoding="utf-8")
+    log_progress("Started run_tokenizer_experiments_remote", commit=True)
+    special_tokens = [SPECIAL_TOKEN]
 
-    tiny_tokenizer = load_tokenizer(args.tiny_vocab, args.tiny_merges, special_tokens)
-    owt_tokenizer = load_tokenizer(args.owt_vocab, args.owt_merges, special_tokens)
+    log_progress("Loading tokenizers")
+    tiny_tokenizer = load_tokenizer(tiny_vocab, tiny_merges, special_tokens)
+    owt_tokenizer = load_tokenizer(owt_vocab, owt_merges, special_tokens)
+    log_progress("Loaded tokenizers")
 
+    log_progress("Sampling TinyStories documents")
     tiny_docs, tiny_seen = reservoir_sample_documents(
-        path=args.tiny_train,
-        n_docs=args.n_sample_docs,
-        delimiter=args.document_delimiter,
-        chunk_chars=args.chunk_chars,
-        seed=args.seed,
+        path=tiny_train,
+        n_docs=n_sample_docs,
+        delimiter=DOC_DELIMITER,
+        chunk_chars=chunk_chars,
+        seed=seed,
     )
+    log_progress(f"Sampled TinyStories documents (seen={tiny_seen})")
+    log_progress("Sampling OpenWebText documents")
     owt_docs, owt_seen = reservoir_sample_documents(
-        path=args.owt_train,
-        n_docs=args.n_sample_docs,
-        delimiter=args.document_delimiter,
-        chunk_chars=args.chunk_chars,
-        seed=args.seed,
+        path=owt_train,
+        n_docs=n_sample_docs,
+        delimiter=DOC_DELIMITER,
+        chunk_chars=chunk_chars,
+        seed=seed,
     )
+    log_progress(f"Sampled OpenWebText documents (seen={owt_seen})")
 
     tiny_ratio = compression_ratio_bytes_per_token(tiny_tokenizer, tiny_docs)
     owt_ratio = compression_ratio_bytes_per_token(owt_tokenizer, owt_docs)
     cross_ratio = compression_ratio_bytes_per_token(tiny_tokenizer, owt_docs)
 
+    log_progress("Benchmarking TinyStories throughput")
     tiny_tput = benchmark_throughput_bytes_per_second(
         tokenizer=tiny_tokenizer,
-        path=args.tiny_train,
-        delimiter=args.document_delimiter,
-        min_bytes=args.throughput_min_bytes,
-        chunk_chars=args.chunk_chars,
+        path=tiny_train,
+        delimiter=DOC_DELIMITER,
+        min_bytes=throughput_min_bytes,
+        chunk_chars=chunk_chars,
     )
+    log_progress("Benchmarking OpenWebText throughput")
     owt_tput = benchmark_throughput_bytes_per_second(
         tokenizer=owt_tokenizer,
-        path=args.owt_train,
-        delimiter=args.document_delimiter,
-        min_bytes=args.throughput_min_bytes,
-        chunk_chars=args.chunk_chars,
+        path=owt_train,
+        delimiter=DOC_DELIMITER,
+        min_bytes=throughput_min_bytes,
+        chunk_chars=chunk_chars,
     )
+    log_progress("Finished part a-c metrics")
 
     tiny_pile_seconds = (
         math.inf if tiny_tput["bytes_per_second"] == 0 else PILE_BYTES / tiny_tput["bytes_per_second"]
@@ -552,49 +556,23 @@ def main() -> None:
     )
 
     dataset_encoding_results: dict[str, dict[str, float | int | str]] = {}
-    if not args.skip_dataset_encoding:
-        dataset_encoding_results["tiny_train"] = encode_dataset_file(
-            tokenizer=tiny_tokenizer,
-            input_path=args.tiny_train,
-            output_path=output_dir / "tiny_train_uint16.npy",
-            chunk_chars=args.chunk_chars,
-        )
-        dataset_encoding_results["tiny_valid"] = encode_dataset_file(
-            tokenizer=tiny_tokenizer,
-            input_path=args.tiny_valid,
-            output_path=output_dir / "tiny_valid_uint16.npy",
-            chunk_chars=args.chunk_chars,
-        )
-        dataset_encoding_results["owt_train"] = encode_dataset_file(
-            tokenizer=owt_tokenizer,
-            input_path=args.owt_train,
-            output_path=output_dir / "owt_train_uint16.npy",
-            chunk_chars=args.chunk_chars,
-        )
-        dataset_encoding_results["owt_valid"] = encode_dataset_file(
-            tokenizer=owt_tokenizer,
-            input_path=args.owt_valid,
-            output_path=output_dir / "owt_valid_uint16.npy",
-            chunk_chars=args.chunk_chars,
-        )
-
     results: dict[str, Any] = {
         "config": {
-            "tiny_train": str(args.tiny_train),
-            "tiny_valid": str(args.tiny_valid),
-            "owt_train": str(args.owt_train),
-            "owt_valid": str(args.owt_valid),
-            "tiny_vocab": str(args.tiny_vocab),
-            "tiny_merges": str(args.tiny_merges),
-            "owt_vocab": str(args.owt_vocab),
-            "owt_merges": str(args.owt_merges),
-            "special_token": args.special_token,
-            "document_delimiter": args.document_delimiter,
-            "n_sample_docs": args.n_sample_docs,
-            "seed": args.seed,
-            "chunk_chars": args.chunk_chars,
-            "throughput_min_bytes": args.throughput_min_bytes,
-            "skip_dataset_encoding": args.skip_dataset_encoding,
+            "tiny_train": str(tiny_train),
+            "tiny_valid": str(tiny_valid),
+            "owt_train": str(owt_train),
+            "owt_valid": str(owt_valid),
+            "tiny_vocab": str(tiny_vocab),
+            "tiny_merges": str(tiny_merges),
+            "owt_vocab": str(owt_vocab),
+            "owt_merges": str(owt_merges),
+            "special_token": SPECIAL_TOKEN,
+            "document_delimiter": DOC_DELIMITER,
+            "n_sample_docs": n_sample_docs,
+            "seed": seed,
+            "chunk_chars": chunk_chars,
+            "throughput_min_bytes": throughput_min_bytes,
+            "skip_dataset_encoding": skip_dataset_encoding,
         },
         "sampling": {
             "tiny_documents_seen": tiny_seen,
@@ -633,6 +611,57 @@ def main() -> None:
         },
     }
 
+    abc_results = {
+        "config": results["config"],
+        "sampling": results["sampling"],
+        "part_a": results["part_a"],
+        "part_b": results["part_b"],
+        "part_c": results["part_c"],
+        "part_d": {
+            "status": (
+                "skipped" if skip_dataset_encoding else "running in parallel; check per-dataset status files"
+            ),
+            "uint16_justification": results["part_d"]["uint16_justification"],
+        },
+    }
+
+    abc_json_path = output_dir / ABC_JSON_FILENAME
+    with abc_json_path.open("w", encoding="utf-8") as abc_json_file:
+        json.dump(abc_results, abc_json_file, indent=2, ensure_ascii=False)
+
+    abc_log_path = output_dir / ABC_LOG_FILENAME
+    with abc_log_path.open("w", encoding="utf-8") as abc_log_file:
+        abc_log_file.write(
+            "\n".join(
+                _build_log_lines(
+                    results=results,
+                    dataset_encoding_results={},
+                )
+            )
+            + "\n"
+        )
+    output_volume.commit()
+    log_progress("Committed early part a-c metrics", commit=True)
+
+    metrics_json_path = output_dir / "metrics.json"
+    log_path = output_dir / "metrics.log"
+
+    if not skip_dataset_encoding:
+        encode_fn = modal.Function.from_name(APP_NAME, "encode_one_dataset_remote")
+        for dataset_key in ENCODING_DATASETS:
+            log_progress(f"Starting dataset encoding: {dataset_key}", commit=True)
+            call = encode_fn.spawn(dataset_key=dataset_key, chunk_chars=chunk_chars)
+            dataset_encoding_results[dataset_key] = call.get()  # type: ignore[assignment]
+            results["part_d"]["encoding_results"] = dataset_encoding_results
+            with metrics_json_path.open("w", encoding="utf-8") as metrics_file:
+                json.dump(results, metrics_file, indent=2, ensure_ascii=False)
+            with log_path.open("w", encoding="utf-8") as log_file:
+                log_file.write("\n".join(_build_log_lines(results=results, dataset_encoding_results=dataset_encoding_results)) + "\n")
+            output_volume.commit()
+            log_progress(f"Finished dataset encoding: {dataset_key}", commit=True)
+
+    results["part_d"]["encoding_results"] = dataset_encoding_results
+
     samples_path = output_dir / "sampled_documents.json"
     with samples_path.open("w", encoding="utf-8") as sample_file:
         json.dump(
@@ -645,55 +674,56 @@ def main() -> None:
             ensure_ascii=False,
         )
 
-    metrics_json_path = output_dir / "metrics.json"
     with metrics_json_path.open("w", encoding="utf-8") as metrics_file:
         json.dump(results, metrics_file, indent=2, ensure_ascii=False)
 
-    log_lines = [
-        "Tokenizer experiment results",
-        "",
-        f"(a) Tiny tokenizer compression (bytes/token): {tiny_ratio['bytes_per_token']:.6f}",
-        f"(a) OWT tokenizer compression (bytes/token): {owt_ratio['bytes_per_token']:.6f}",
-        f"(b) Tiny tokenizer on OWT sample (bytes/token): {cross_ratio['bytes_per_token']:.6f}",
-        (
-            "(b) Delta vs OWT tokenizer on OWT sample "
-            f"(cross - native): {results['part_b']['delta_bytes_per_token_cross_minus_native']:.6f}"
-        ),
-        f"(c) Tiny throughput (bytes/s): {tiny_tput['bytes_per_second']:.2f}",
-        f"(c) OWT throughput (bytes/s): {owt_tput['bytes_per_second']:.2f}",
-        (
-            "(c) Estimated Pile tokenization time with tiny tokenizer: "
-            f"{results['part_c']['pile_estimate_days_tiny']:.2f} days"
-        ),
-        (
-            "(c) Estimated Pile tokenization time with OWT tokenizer: "
-            f"{results['part_c']['pile_estimate_days_owt']:.2f} days"
-        ),
-        "(d) uint16 rationale: vocab sizes 10k and 32k fit in [0, 65535].",
-    ]
-    if dataset_encoding_results:
-        log_lines.append("")
-        log_lines.append("Dataset encoding outputs:")
-        for key, value in dataset_encoding_results.items():
-            log_lines.append(
-                f"- {key}: {value['total_tokens']} tokens -> {value['output_path']} "
-                f"in {value['elapsed_seconds']:.2f}s"
-            )
-    else:
-        log_lines.append("")
-        log_lines.append("Dataset encoding skipped via --skip-dataset-encoding.")
-
-    args.log_file.parent.mkdir(parents=True, exist_ok=True)
-    with args.log_file.open("w", encoding="utf-8") as log_file:
+    log_lines = _build_log_lines(results=results, dataset_encoding_results=dataset_encoding_results)
+    with log_path.open("w", encoding="utf-8") as log_file:
         log_file.write("\n".join(log_lines) + "\n")
 
+    output_volume.commit()
+    log_progress("Completed run_tokenizer_experiments_remote", commit=True)
+    print(f"Wrote early metrics to: {abc_log_path} and {abc_json_path}")
     print(f"Wrote sampled docs to: {samples_path}")
     print(f"Wrote metrics JSON to: {metrics_json_path}")
-    print(f"Wrote metrics log to: {args.log_file}")
+    print(f"Wrote metrics log to: {log_path}")
     if dataset_encoding_results:
         print("Wrote encoded datasets:")
         for key, value in dataset_encoding_results.items():
             print(f"  - {key}: {value['output_path']}")
+    return "\n".join(log_lines)
+
+
+@app.local_entrypoint()
+def main(
+    n_sample_docs: int = 10,
+    seed: int = 42,
+    chunk_chars: int = 2_000_000,
+    throughput_min_bytes: int = 5_000_000,
+    skip_dataset_encoding: bool = False,
+) -> None:
+    try:
+        deployed_fn = modal.Function.from_name(APP_NAME, "run_tokenizer_experiments_remote")
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not find deployed Modal function 'run_tokenizer_experiments_remote'. "
+            f"Deploy first with: modal deploy {Path(__file__).as_posix()}"
+        ) from exc
+
+    function_call = deployed_fn.spawn(
+        n_sample_docs=n_sample_docs,
+        seed=seed,
+        chunk_chars=chunk_chars,
+        throughput_min_bytes=throughput_min_bytes,
+        skip_dataset_encoding=skip_dataset_encoding,
+    )
+    print("Submitted tokenizer experiments job asynchronously.")
+    print(f"FunctionCall ID: {function_call.object_id}")
+    print(
+        f"Artifacts will be written to Modal Volume '{OUTPUT_VOLUME_NAME}' at "
+        f"{REMOTE_OUTPUT_DIR}: {ABC_LOG_FILENAME}, {ABC_JSON_FILENAME}, metrics.log, metrics.json, "
+        "sampled_documents.json, and encoded .npy files."
+    )
 
 
 if __name__ == "__main__":

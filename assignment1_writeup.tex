@@ -1,0 +1,149 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\setlist[itemize]{leftmargin=1.5em}
+\setlist[enumerate]{leftmargin=1.8em}
+
+\newcommand{\placeholder}[1]{\textit{[#1]}}
+
+\title{CS336 Assignment 1 (Basics)\\Writeup Template}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Problem (unicode1): Understanding Unicode}
+\subsection*{(a)}
+\placeholder{One-sentence response.}
+
+\subsection*{(b)}
+\placeholder{One-sentence response.}
+
+\subsection*{(c)}
+\placeholder{One-sentence response.}
+
+\section{Problem (unicode2): Unicode Encodings}
+\subsection*{(a)}
+\placeholder{One-to-two sentence response.}
+
+\subsection*{(b)}
+\placeholder{Example input bytestring + one-sentence explanation.}
+
+\subsection*{(c)}
+\placeholder{Two-byte sequence example + one-sentence explanation.}
+
+\section{Problem (train\_bpe\_tinystories): BPE Training on TinyStories}
+\subsection*{(a)}
+\placeholder{One-to-two sentence response on runtime, memory, and longest token.}
+
+\subsection*{(b)}
+\placeholder{One-to-two sentence response on profiling bottleneck.}
+
+\section{Problem (train\_bpe\_expts\_owt): BPE Training on OpenWebText}
+\subsection*{(a)}
+\placeholder{One-to-two sentence response on longest token and interpretation.}
+
+\subsection*{(b)}
+\placeholder{One-to-two sentence compare/contrast with TinyStories tokenizer.}
+
+\section{Problem (tokenizer\_experiments): Experiments with Tokenizers}
+\subsection*{(a)}
+\placeholder{One-to-two sentence response on compression ratios (bytes/token).}
+
+\subsection*{(b)}
+\placeholder{One-to-two sentence response on OWT sample tokenized with TinyStories tokenizer.}
+
+\subsection*{(c)}
+\placeholder{One-to-two sentence response on throughput and estimated Pile tokenization time.}
+
+\subsection*{(d)}
+\placeholder{One-to-two sentence response on uint16 choice.}
+
+\section{Problem (transformer\_accounting): Transformer LM Resource Accounting}
+\subsection*{(a)}
+\placeholder{One-to-two sentence response on parameter count and model-memory footprint.}
+
+\subsection*{(b)}
+\placeholder{List of matrix multiplies (with descriptions) and total FLOPs.}
+
+\subsection*{(c)}
+\placeholder{One-to-two sentence response on highest-FLOP components.}
+
+\subsection*{(d)}
+\placeholder{FLOP breakdowns for GPT-2 small/medium/large + short trend analysis.}
+
+\subsection*{(e)}
+\placeholder{One-to-two sentence response for context length 16,384 scaling effects.}
+
+\section{Problem (learning\_rate\_tuning): Tuning the Learning Rate (SGD toy example)}
+\placeholder{One-to-two sentence response describing observed behavior for lr = 1e1, 1e2, 1e3.}
+
+\section{Problem (adamw\_accounting): Resource Accounting for Training with AdamW}
+\subsection*{(a)}
+\placeholder{Algebraic expressions for parameters, activations, gradients, optimizer state, and total memory.}
+
+\subsection*{(b)}
+\placeholder{GPT-2 XL instantiation as $a \cdot \text{batch\_size} + b$ and max batch size under 80GB.}
+
+\subsection*{(c)}
+\placeholder{Algebraic expression for one AdamW step FLOPs + brief justification.}
+
+\subsection*{(d)}
+\placeholder{Estimated training time (hours) at 50\% MFU on one H100 + brief justification.}
+
+\section{Problem (experiment\_log): Experiment Logging}
+\placeholder{Brief description of your logging infrastructure and where experiment logs/loss curves are recorded.}
+
+\section{Problem (learning\_rate): Tune the Learning Rate on TinyStories}
+\subsection*{(a)}
+\placeholder{Include learning curves for multiple learning rates and explain search strategy.}
+
+\subsection*{(Validation target)}
+\placeholder{Report model achieving TinyStories validation loss target (or adjusted low-resource target, if applicable).}
+
+\subsection*{(b)}
+\placeholder{Include curves showing increasing learning rates with at least one divergent run + analysis.}
+
+\section{Problem (batch\_size\_experiment): Batch Size Variations}
+\placeholder{Include learning curves for multiple batch sizes (including 64 and 128) with retuned learning rates if needed.}
+
+\placeholder{A few sentences discussing findings on batch size effects.}
+
+\section{Problem (generate): Generate Text}
+\placeholder{Text dump of at least 256 tokens (or until first \texttt{<|endoftext|>}).}
+
+\placeholder{Brief comment on fluency and at least two factors affecting output quality.}
+
+\section{Problem (layer\_norm\_ablation): Remove RMSNorm and Train}
+\placeholder{Learning curve(s) for no-RMSNorm model, including best lower-learning-rate run.}
+
+\placeholder{A few sentences on RMSNorm impact.}
+
+\section{Problem (pre\_norm\_ablation): Implement Post-Norm and Train}
+\placeholder{Learning curve comparing post-norm and pre-norm Transformers.}
+
+\section{Problem (no\_pos\_emb): Implement NoPE}
+\placeholder{Learning curve comparing RoPE and NoPE.}
+
+\section{Problem (swiglu\_ablation): SwiGLU vs.\ SiLU}
+\placeholder{Learning curve comparing SwiGLU and SiLU feed-forward networks (parameter-matched).}
+
+\placeholder{A few sentences discussing findings.}
+
+\section{Problem (main\_experiment): Experiment on OpenWebText}
+\placeholder{Learning curve on OpenWebText + discussion of loss differences vs TinyStories.}
+
+\placeholder{Generated text in TinyStories-style format + discussion of fluency and quality gap.}
+
+\section{Problem (leaderboard): Leaderboard Submission}
+\placeholder{Final validation loss, learning curve with wall-clock x-axis under 45 minutes, and description of modifications/hyperparameters.}
+
+\end{document}

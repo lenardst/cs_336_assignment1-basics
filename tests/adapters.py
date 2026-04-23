@@ -31,7 +31,7 @@ def run_linear(
 
     import importlib
 
-    linear_module = importlib.import_module("cs336_basics.3_1_linear")
+    linear_module = importlib.import_module("cs336_basics.3_transformer_lm")
     linear_cls = getattr(linear_module, "Linear")
 
     linear = linear_cls(
@@ -65,7 +65,7 @@ def run_embedding(
 
     import importlib
 
-    embedding_module = importlib.import_module("cs336_basics.3_2_embedding")
+    embedding_module = importlib.import_module("cs336_basics.3_transformer_lm")
     embedding_cls = getattr(embedding_module, "Embedding")
 
     embedding = embedding_cls(
@@ -102,7 +102,7 @@ def run_swiglu(
     """
     import importlib
 
-    swiglu_module = importlib.import_module("cs336_basics.3_3_pre_norm_transformer_block")
+    swiglu_module = importlib.import_module("cs336_basics.3_transformer_lm")
     swiglu_cls = getattr(swiglu_module, "PositionwiseFeedForward")
 
     try:
@@ -153,7 +153,11 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    import importlib
+
+    attn_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    run_sdpa = getattr(attn_module, "run_scaled_dot_product_attention")
+    return run_sdpa(Q, K, V, mask)
 
 
 def run_multihead_self_attention(
@@ -187,7 +191,39 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    import importlib
+
+    attn_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    attn_cls = getattr(attn_module, "CausalMultiHeadSelfAttention")
+
+    attn = attn_cls(
+        d_model=d_model,
+        num_heads=num_heads,
+        device=in_features.device,
+        dtype=in_features.dtype,
+    )
+
+    class _NoOpRoPE(torch.nn.Module):
+        def forward(self, x: Tensor, token_positions: Tensor) -> Tensor:  # noqa: ARG002
+            return x
+
+    attn.rope = _NoOpRoPE()
+
+    def _set_weight(layer: torch.nn.Module, weight: Tensor) -> None:
+        if hasattr(layer, "weight"):
+            layer.weight.data = weight
+            return
+        if hasattr(layer, "w"):
+            layer.w.data = weight
+            return
+        raise AttributeError("Expected a layer with `weight` or `w` parameter.")
+
+    _set_weight(attn.wq, q_proj_weight)
+    _set_weight(attn.wk, k_proj_weight)
+    _set_weight(attn.wv, v_proj_weight)
+    _set_weight(attn.wo, o_proj_weight)
+
+    return attn(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -227,7 +263,59 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_model"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    import importlib
+
+    attn_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    attn_cls = getattr(attn_module, "CausalMultiHeadSelfAttention")
+    rope_cls = getattr(attn_module, "RotaryPositionalEmbedding")
+
+    attn = attn_cls(
+        d_model=d_model,
+        num_heads=num_heads,
+        device=in_features.device,
+        dtype=in_features.dtype,
+    )
+
+    rope = rope_cls(
+        theta=theta,
+        d_k=d_model // num_heads,
+        max_seq_len=max_seq_len,
+        device=in_features.device,
+    )
+
+    if token_positions is None:
+        attn.rope = rope
+    else:
+        fixed_positions = token_positions.to(device=in_features.device, dtype=torch.long)
+        if fixed_positions.ndim > 1 and fixed_positions.shape[0] == 1:
+            fixed_positions = fixed_positions.squeeze(0)
+
+        class _FixedPositionRoPE(torch.nn.Module):
+            def __init__(self, base_rope: torch.nn.Module, positions: Tensor):
+                super().__init__()
+                self.base_rope = base_rope
+                self.register_buffer("positions", positions, persistent=False)
+
+            def forward(self, x: Tensor, token_positions: Tensor) -> Tensor:  # noqa: ARG002
+                return self.base_rope(x, self.positions)
+
+        attn.rope = _FixedPositionRoPE(rope, fixed_positions)
+
+    def _set_weight(layer: torch.nn.Module, weight: Tensor) -> None:
+        if hasattr(layer, "weight"):
+            layer.weight.data = weight
+            return
+        if hasattr(layer, "w"):
+            layer.w.data = weight
+            return
+        raise AttributeError("Expected a layer with `weight` or `w` parameter.")
+
+    _set_weight(attn.wq, q_proj_weight)
+    _set_weight(attn.wk, k_proj_weight)
+    _set_weight(attn.wv, v_proj_weight)
+    _set_weight(attn.wo, o_proj_weight)
+
+    return attn(in_features)
 
 
 def run_rope(
@@ -249,7 +337,18 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    import importlib
+
+    rope_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    rope_cls = getattr(rope_module, "RotaryPositionalEmbedding")
+
+    rope = rope_cls(
+        theta=theta,
+        d_k=d_k,
+        max_seq_len=max_seq_len,
+        device=in_query_or_key.device,
+    )
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
@@ -322,7 +421,52 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    import importlib
+
+    block_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    block_cls = getattr(block_module, "TransformerBlock")
+    rope_cls = getattr(block_module, "RotaryPositionalEmbedding")
+
+    block = block_cls(
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        max_seq_len=max_seq_len,
+        theta=theta,
+        device=in_features.device,
+        dtype=in_features.dtype,
+    )
+
+    block.attn.rope = rope_cls(
+        theta=theta,
+        d_k=d_model // num_heads,
+        max_seq_len=max_seq_len,
+        device=in_features.device,
+    )
+
+    def _set_weight(layer: torch.nn.Module, weight: Tensor) -> None:
+        if hasattr(layer, "weight"):
+            layer.weight.data = weight
+            return
+        if hasattr(layer, "w"):
+            layer.w.data = weight
+            return
+        if hasattr(layer, "g"):
+            layer.g.data = weight
+            return
+        raise AttributeError("Expected a layer with `weight`, `w`, or `g` parameter.")
+
+    _set_weight(block.attn.wq, weights["attn.q_proj.weight"])
+    _set_weight(block.attn.wk, weights["attn.k_proj.weight"])
+    _set_weight(block.attn.wv, weights["attn.v_proj.weight"])
+    _set_weight(block.attn.wo, weights["attn.output_proj.weight"])
+    _set_weight(block.ln1, weights["ln1.weight"])
+    _set_weight(block.ffn.w1, weights["ffn.w1.weight"])
+    _set_weight(block.ffn.w2, weights["ffn.w2.weight"])
+    _set_weight(block.ffn.w3, weights["ffn.w3.weight"])
+    _set_weight(block.ln2, weights["ln2.weight"])
+
+    return block(in_features)
 
 
 def run_transformer_lm(
@@ -404,7 +548,56 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    import importlib
+
+    lm_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    lm_cls = getattr(lm_module, "TransformerLM")
+    lm = lm_cls(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+        device=in_indices.device,
+        dtype=weights["token_embeddings.weight"].dtype,
+    )
+
+    def _set_weight(layer: torch.nn.Module, weight: Tensor) -> None:
+        if hasattr(layer, "weight"):
+            layer.weight.data = weight
+            return
+        if hasattr(layer, "w"):
+            layer.w.data = weight
+            return
+        if hasattr(layer, "g"):
+            layer.g.data = weight
+            return
+        if hasattr(layer, "embedding_matrix"):
+            layer.embedding_matrix.data = weight
+            return
+        raise AttributeError("Expected a layer with `weight`, `w`, `g`, or `embedding_matrix` parameter.")
+
+    _set_weight(lm.token_embedding, weights["token_embeddings.weight"])
+
+    for layer_idx in range(num_layers):
+        prefix = f"layers.{layer_idx}."
+        layer = lm.transformers[layer_idx]
+        _set_weight(layer.attn.wq, weights[f"{prefix}attn.q_proj.weight"])
+        _set_weight(layer.attn.wk, weights[f"{prefix}attn.k_proj.weight"])
+        _set_weight(layer.attn.wv, weights[f"{prefix}attn.v_proj.weight"])
+        _set_weight(layer.attn.wo, weights[f"{prefix}attn.output_proj.weight"])
+        _set_weight(layer.ln1, weights[f"{prefix}ln1.weight"])
+        _set_weight(layer.ffn.w1, weights[f"{prefix}ffn.w1.weight"])
+        _set_weight(layer.ffn.w2, weights[f"{prefix}ffn.w2.weight"])
+        _set_weight(layer.ffn.w3, weights[f"{prefix}ffn.w3.weight"])
+        _set_weight(layer.ln2, weights[f"{prefix}ln2.weight"])
+
+    _set_weight(lm.norm, weights["ln_final.weight"])
+    _set_weight(lm.linear, weights["lm_head.weight"])
+
+    return lm(in_indices)
 
 
 def run_rmsnorm(
@@ -429,7 +622,7 @@ def run_rmsnorm(
     """
     import importlib
 
-    rmsnorm_module = importlib.import_module("cs336_basics.3_3_pre_norm_transformer_block")
+    rmsnorm_module = importlib.import_module("cs336_basics.3_transformer_lm")
     rmsnorm_cls = getattr(rmsnorm_module, "RMSNorm")
 
     rmsnorm = rmsnorm_cls(
@@ -492,7 +685,11 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    import importlib
+
+    nn_utils_module = importlib.import_module("cs336_basics.3_transformer_lm")
+    softmax_fn = getattr(nn_utils_module, "softmax")
+    return softmax_fn(in_features, dim)
 
 
 def run_cross_entropy(

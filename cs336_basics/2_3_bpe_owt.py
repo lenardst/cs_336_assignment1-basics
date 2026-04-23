@@ -1,7 +1,9 @@
-from bpe_tokenizer import train_bpe
+import importlib
 import pickle
 import os
 import time
+
+train_bpe = importlib.import_module("cs336_basics.2_0_bpe_tokenizer").train_bpe
 
 input_path = "data/owt_valid.txt"
 max_vocab_size = 32_000

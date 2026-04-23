@@ -1,6 +1,8 @@
 import pickle
 from typing import Iterable, Iterator
-from cs336_basics.bpe_tokenizer import pre_tokenize
+from importlib import import_module
+
+pre_tokenize = import_module("cs336_basics.2_0_bpe_tokenizer").pre_tokenize
 
 def read_with_sequence_boundary(iterable: Iterable[str], delimiters):
     remainder = ""
@@ -32,7 +34,11 @@ class Tokenizer:
         self.vocab = vocab
         self.merges = merges
         self.special_tokens = special_tokens or []
+        self._special_tokens_set = set(self.special_tokens)
+        self._special_token_bytes = {token: token.encode("utf-8") for token in self.special_tokens}
         self.token_to_id = {token_bytes: token_id for token_id, token_bytes in self.vocab.items()}
+        self._merge_ranks = {(first, second): rank for rank, (first, second) in enumerate(self.merges)}
+        self._piece_cache: dict[str, tuple[int, ...]] = {}
 
     @classmethod
     def from_files(
@@ -55,16 +61,37 @@ class Tokenizer:
 
     def encode(self, text: str) -> list[int]:
         pretokenized = pre_tokenize(text, self.special_tokens)
-        special_tokens_set = set(self.special_tokens)
         encoded_ids: list[int] = []
+        piece_cache = self._piece_cache
+        token_to_id = self.token_to_id
+        merge_ranks = self._merge_ranks
+        special_tokens_set = self._special_tokens_set
+        special_token_bytes = self._special_token_bytes
 
         for piece in pretokenized:
+            cached = piece_cache.get(piece)
+            if cached is not None:
+                encoded_ids.extend(cached)
+                continue
+
             if piece in special_tokens_set:
-                token_bytes = [piece.encode("utf-8")]
+                token_bytes = [special_token_bytes[piece]]
             else:
                 token_bytes = [bytes([b]) for b in piece.encode("utf-8")]
 
-            for first, second in self.merges:
+            while len(token_bytes) > 1:
+                best_pair: tuple[bytes, bytes] | None = None
+                best_rank: int | None = None
+                for i in range(len(token_bytes) - 1):
+                    pair = (token_bytes[i], token_bytes[i + 1])
+                    rank = merge_ranks.get(pair)
+                    if rank is not None and (best_rank is None or rank < best_rank):
+                        best_rank = rank
+                        best_pair = pair
+
+                if best_pair is None:
+                    break
+                first, second = best_pair
                 i = 0
                 merged_tokens: list[bytes] = []
                 while i < len(token_bytes):
@@ -80,11 +107,14 @@ class Tokenizer:
                         i += 1
                 token_bytes = merged_tokens
 
+            piece_ids: list[int] = []
             for token in token_bytes:
-                token_id = self.token_to_id.get(token)
+                token_id = token_to_id.get(token)
                 if token_id is None:
                     raise ValueError(f"Token {token!r} not found in vocabulary.")
-                encoded_ids.append(token_id)
+                piece_ids.append(token_id)
+            encoded_ids.extend(piece_ids)
+            piece_cache[piece] = tuple(piece_ids)
         return encoded_ids
 
     def encode_iterable(self, iterable:Iterable[str]) -> Iterator[int]:
