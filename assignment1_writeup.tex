@@ -164,7 +164,7 @@ GPT-2 XL     & 21.47\% & 4.58\% & 4.58\% & 7.16\% & 38.36\% & 19.18\% & 4.68\% \
 As model size increases, FFN and projection-heavy terms take a larger share of total FLOPs, while the final vocab projection takes a much smaller share. The attention score/value terms decrease proportionally here because \(T\) is fixed and \(d\)-/depth-driven terms grow faster.
 
 \subsection*{(e)}
-\placeholder{One-to-two sentence response for context length 16,384 scaling effects.}
+For GPT-2 XL, increasing context length from \(1024\) to \(16{,}384\) raises one-forward-pass matmul FLOPs from \(3{,}516{,}769{,}894{,}400\) to \(133{,}577{,}729{,}638{,}400\), i.e. \(\approx 37.98\times\) higher. The relative FLOP share shifts strongly toward the \(T^2\) attention terms: attention scores + attention-value rise from \(9.16\%\) to \(61.73\%\), while FFN (\(W_1/W_3/W_2\)) falls from \(57.51\%\) to \(24.24\%\) and final projection falls from \(4.68\%\) to \(1.97\%\).
 
 \section{Problem (learning\_rate\_tuning): Tuning the Learning Rate (SGD toy example)}
 \placeholder{One-to-two sentence response describing observed behavior for lr = 1e1, 1e2, 1e3.}
