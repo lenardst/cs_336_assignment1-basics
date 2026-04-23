@@ -12,7 +12,7 @@ train_bpe = import_module("cs336_basics.2_0_bpe_tokenizer").train_bpe
 
 APP_NAME = "train-bpe-tinystories"
 DATA_DIR = Path("data")
-INPUT_PATH = DATA_DIR / "TinyStoriesV2-GPT4-valid.txt"
+INPUT_PATH = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
 VOCAB_PATH = DATA_DIR / "tinystories_vocab_10000.pkl"
 MERGES_PATH = DATA_DIR / "tinystories_merges_10000.pkl"
 LOG_PATH = DATA_DIR / "train_bpe_tinystories_log.txt"

@@ -11,8 +11,8 @@
 
 \newcommand{\placeholder}[1]{\textit{[#1]}}
 
-\title{CS336 Assignment 1 (Basics)\\Writeup Template}
-\author{Your Name}
+\title{CS336 Assignment 1 (Basics)\\Writeup}
+\author{Lenard Strahringer}
 \date{\today}
 
 \begin{document}
@@ -22,53 +22,61 @@
 
 \section{Problem (unicode1): Understanding Unicode}
 \subsection*{(a)}
-\placeholder{One-sentence response.}
+The expression \texttt{chr(0)} returns the Unicode null character, \texttt{U+0000} (NUL).
 
 \subsection*{(b)}
-\placeholder{One-sentence response.}
+Its string representation shows an escape sequence like \texttt{'\textbackslash x00'}, while printing it produces a non-printing control character (typically visually empty output).
 
 \subsection*{(c)}
-\placeholder{One-sentence response.}
+When this character appears in text it is embedded as an invisible null byte that still occupies a position in the string, and some tools/languages may treat it as a terminator and behave unexpectedly.
 
 \section{Problem (unicode2): Unicode Encodings}
 \subsection*{(a)}
-\placeholder{One-to-two sentence response.}
+UTF-8 is usually preferred because it is much more space-efficient for ASCII-heavy text (common on the web), is byte-oriented and backward-compatible with ASCII, and avoids UTF-16 endianness/BOM complications while still representing all Unicode characters.
 
 \subsection*{(b)}
-\placeholder{Example input bytestring + one-sentence explanation.}
+An example is \texttt{b'\textbackslash xc3\textbackslash xa9'} (which is ``é'' in UTF-8): the function is incorrect because it decodes each byte independently, but UTF-8 is variable-length and many characters require combining multiple bytes before decoding.
 
 \subsection*{(c)}
-\placeholder{Two-byte sequence example + one-sentence explanation.}
+An example invalid two-byte sequence is \texttt{b'\textbackslash xc0\textbackslash xaf'}, which is an overlong UTF-8 encoding and therefore does not decode to any valid Unicode character sequence.
 
 \section{Problem (train\_bpe\_tinystories): BPE Training on TinyStories}
 \subsection*{(a)}
-\placeholder{One-to-two sentence response on runtime, memory, and longest token.}
+Using \texttt{input\_path=data/TinyStoriesV2-GPT4-valid.txt}, \texttt{max\_vocab\_size=10000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 25.07 seconds and produced a 10,000-token vocabulary whose longest token was 15 bytes: \texttt{' accomplishment'}. This longest token is reasonable because frequent whitespace-prefixed word fragments are exactly the kind of units BPE tends to merge.
 
 \subsection*{(b)}
-\placeholder{One-to-two sentence response on profiling bottleneck.}
+In my profile, most runtime is in the BPE merge loop: \texttt{update\_word\_pairs} (32.38\%) and \texttt{merge\_tokens\_words\_element} (32.16\%) together account for about two-thirds of sampled execution time. Smaller portions are loop overhead and preprocessing/counting, and because subprocess profiling was not enabled, worker-process pretokenization time may be underrepresented.
 
 \section{Problem (train\_bpe\_expts\_owt): BPE Training on OpenWebText}
 \subsection*{(a)}
-\placeholder{One-to-two sentence response on longest token and interpretation.}
+Using \texttt{input\_path=data/owt\_valid.txt}, \texttt{max\_vocab\_size=32000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 1943.20 seconds and produced a 32,000-token vocabulary whose longest token was 64 bytes: \texttt{'----------------------------------------------------------------'}. This token is plausible because long repeated punctuation spans occur in web text and are highly mergeable under BPE.
 
 \subsection*{(b)}
 \placeholder{One-to-two sentence compare/contrast with TinyStories tokenizer.}
 
 \section{Problem (tokenizer\_experiments): Experiments with Tokenizers}
 \subsection*{(a)}
-\placeholder{One-to-two sentence response on compression ratios (bytes/token).}
+On 10 sampled TinyStories documents, the TinyStories tokenizer achieved 4.150 bytes/token (7412 bytes over 1786 tokens). On 10 sampled OpenWebText documents, the OpenWebText tokenizer achieved 4.680 bytes/token (31487 bytes over 6728 tokens), indicating better compression on its in-domain sample.
 
 \subsection*{(b)}
-\placeholder{One-to-two sentence response on OWT sample tokenized with TinyStories tokenizer.}
+Tokenizing the OpenWebText sample with the TinyStories tokenizer produced 3.160 bytes/token (31487 bytes over 9963 tokens), versus 4.680 bytes/token with the OpenWebText tokenizer on the same sample. This means the TinyStories tokenizer produced many more tokens (worse compression), with a cross-minus-native difference of $-1.520$ bytes/token.
 
 \subsection*{(c)}
-\placeholder{One-to-two sentence response on throughput and estimated Pile tokenization time.}
+Measured throughput was about 4.12 MB/s for the TinyStories tokenizer and 1.92 MB/s for the OpenWebText tokenizer (benchmarked on about 5.0M bytes each). At those rates, tokenizing the 825GB Pile is estimated to take about 55.67 hours (2.32 days) with the TinyStories tokenizer or 119.08 hours (4.96 days) with the OpenWebText tokenizer.
 
 \subsection*{(d)}
-\placeholder{One-to-two sentence response on uint16 choice.}
+\texttt{uint16} is appropriate because both vocabularies are below 65,536 entries (10K and 32K), so every token ID fits exactly in 16 bits. Using \texttt{uint16} therefore halves storage relative to \texttt{int32} while preserving all IDs.
 
 \section{Problem (transformer\_accounting): Transformer LM Resource Accounting}
 \subsection*{(a)}
+
+
+
+
+
+
+
+
 \placeholder{One-to-two sentence response on parameter count and model-memory footprint.}
 
 \subsection*{(b)}

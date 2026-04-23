@@ -13,7 +13,7 @@ train_bpe = import_module("cs336_basics.2_0_bpe_tokenizer").train_bpe
 
 APP_NAME = "train-bpe-expts-owt"
 DATA_DIR = Path("data")
-INPUT_PATH = DATA_DIR / "owt_valid.txt"
+INPUT_PATH = DATA_DIR / "owt_train.txt"
 VOCAB_PATH = DATA_DIR / "owt_vocab_32000.pkl"
 MERGES_PATH = DATA_DIR / "owt_merges_32000.pkl"
 LOG_PATH = DATA_DIR / "train_bpe_expts_owt_log.txt"
