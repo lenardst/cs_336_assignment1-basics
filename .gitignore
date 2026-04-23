@@ -163,5 +163,7 @@ cython_debug/
 *.zip
 
 # Local training/validation data artifacts
+data/
+checkpoints/
 data/*.txt
 data/*.pkl

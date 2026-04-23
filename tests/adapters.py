@@ -669,7 +669,11 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    import importlib
+
+    training_module = importlib.import_module("cs336_basics.4_training")
+    get_batch_fn = getattr(training_module, "get_batch")
+    return get_batch_fn(dataset, batch_size, context_length, device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -814,7 +818,11 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    import importlib
+
+    training_module = importlib.import_module("cs336_basics.4_training")
+    save_checkpoint_fn = getattr(training_module, "save_checkpoint")
+    save_checkpoint_fn(model, optimizer, iteration, out)
 
 
 def run_load_checkpoint(
@@ -835,7 +843,11 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    import importlib
+
+    training_module = importlib.import_module("cs336_basics.4_training")
+    load_checkpoint_fn = getattr(training_module, "load_checkpoint")
+    return load_checkpoint_fn(src, model, optimizer)
 
 
 def get_tokenizer(

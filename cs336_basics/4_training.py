@@ -1,7 +1,9 @@
 import importlib
 import math
+import os
 from collections.abc import Callable
 from re import M
+from typing import IO, BinaryIO
 from typing import Optional
 
 import torch
@@ -118,3 +120,39 @@ def gradient_clipping(parameters, max_l2_norm: float) -> None:
     scale = max_l2_norm / (total_norm + 1e-6)
     for g in grads:
         g.mul_(scale)
+
+def get_batch(x, batch_size, context_length, device):
+    data = torch.from_numpy(x)
+    
+    indx = torch.randint(0, len(data) - context_length, (batch_size,))
+    
+    ipt_seq = torch.stack([data[i : i + context_length] for i in indx])
+    targets = torch.stack([data[i + 1 : i + context_length + 1] for i in indx])
+    
+    return ipt_seq.to(device), targets.to(device)
+
+
+def save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    out: str | os.PathLike | BinaryIO | IO[bytes],
+) -> None:
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "iteration": iteration,
+    }
+    torch.save(checkpoint, out)
+
+
+def load_checkpoint(
+    src: str | os.PathLike | BinaryIO | IO[bytes],
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+) -> int:
+    checkpoint = torch.load(src, map_location="cpu")
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    return checkpoint["iteration"]
+

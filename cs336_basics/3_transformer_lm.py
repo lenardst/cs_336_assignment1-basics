@@ -83,12 +83,10 @@ class PositionwiseFeedForward(torch.nn.Module):
         self.device = device
         self.dtype = dtype
 
-        self.w1 = Linear(self.d_ff, d_model, device=device,
-        dtype=dtype)
-        self.w2 = Linear(d_model, self.d_ff, device=device,
-        dtype=dtype)
-        self.w3 = Linear(self.d_ff, d_model, device=device,
-        dtype=dtype)
+        # SwiGLU uses two projections from d_model -> d_ff, then projects back d_ff -> d_model.
+        self.w1 = Linear(d_model, self.d_ff, device=device, dtype=dtype)
+        self.w2 = Linear(self.d_ff, d_model, device=device, dtype=dtype)
+        self.w3 = Linear(d_model, self.d_ff, device=device, dtype=dtype)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         gated = einsum(
