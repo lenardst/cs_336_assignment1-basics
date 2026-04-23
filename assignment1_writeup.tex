@@ -42,7 +42,7 @@ An example invalid two-byte sequence is \texttt{b'\textbackslash xc0\textbacksla
 
 \section{Problem (train\_bpe\_tinystories): BPE Training on TinyStories}
 \subsection*{(a)}
-Using \texttt{input\_path=data/TinyStoriesV2-GPT4-valid.txt}, \texttt{max\_vocab\_size=10000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 25.07 seconds and produced a 10,000-token vocabulary whose longest token was 15 bytes: \texttt{' accomplishment'}. This longest token is reasonable because frequent whitespace-prefixed word fragments are exactly the kind of units BPE tends to merge.
+Using \texttt{input\_path=data/TinyStoriesV2-GPT4-train.txt}, \texttt{max\_vocab\_size=10000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 1017.59 seconds and produced a 10,000-token vocabulary whose longest token was 15 bytes: \texttt{' accomplishment'}. This longest token is reasonable because frequent whitespace-prefixed word fragments are exactly the kind of units BPE tends to merge.
 
 \subsection*{(b)}
 In my profile, most runtime is in the BPE merge loop: \texttt{update\_word\_pairs} (32.38\%) and \texttt{merge\_tokens\_words\_element} (32.16\%) together account for about two-thirds of sampled execution time. Smaller portions are loop overhead and preprocessing/counting, and because subprocess profiling was not enabled, worker-process pretokenization time may be underrepresented.
@@ -69,18 +69,78 @@ Measured throughput was about 4.12 MB/s for the TinyStories tokenizer and 1.92 M
 
 \section{Problem (transformer\_accounting): Transformer LM Resource Accounting}
 \subsection*{(a)}
+Trainable parameters (no linear biases; \texttt{RMSNorm} has only a scale vector):
+\[
+\text{total}
+= (50{,}257\cdot1{,}600)
++ 48\left(4\cdot1{,}600^2 + 3\cdot1{,}600\cdot4{,}288 + 2\cdot1{,}600\right)
++ 1{,}600
++ (1{,}600\cdot50{,}257)
+\]
+\[
+= 80{,}411{,}200 + 1{,}479{,}628{,}800 + 1{,}600 + 80{,}411{,}200
+= 1{,}640{,}452{,}800
+\]
 
-
-
-
-
-
-
-
-\placeholder{One-to-two sentence response on parameter count and model-memory footprint.}
+If each is stored as a single-precision floating point, the model needs 32 bits x 1{,}640{,}452{,}800 = 52,494,489,600 \text{ bits} \approx 6.56 \text{ GB}. 6.56 \text{ GB} are required just to load the model.
 
 \subsection*{(b)}
-\placeholder{List of matrix multiplies (with descriptions) and total FLOPs.}
+For one \texttt{TransformerBlock}, let \(B=\) batch size, \(T=\) sequence length, \(d=1600\), \(h=25\), \(d_k=d/h=64\), \(d_{\text{ff}}=4288\). The 9 matrix multiplications are:
+\begin{itemize}
+    \item Q projection: \([B,T,d]\times[d,d]\to[B,T,d]\)
+    \item K projection: \([B,T,d]\times[d,d]\to[B,T,d]\)
+    \item V projection: \([B,T,d]\times[d,d]\to[B,T,d]\)
+    \item Attention scores \(QK^\top\): \([B,h,T,d_k]\times[B,h,d_k,T]\to[B,h,T,T]\)
+    \item Attention-value product: \([B,h,T,T]\times[B,h,T,d_k]\to[B,h,T,d_k]\)
+    \item Output projection \(W_O\): \([B,T,d]\times[d,d]\to[B,T,d]\)
+    \item FFN branch \(W_1\): \([B,T,d]\times[d,d_{\text{ff}}]\to[B,T,d_{\text{ff}}]\)
+    \item FFN branch \(W_3\): \([B,T,d]\times[d,d_{\text{ff}}]\to[B,T,d_{\text{ff}}]\)
+    \item FFN output \(W_2\): \([B,T,d_{\text{ff}}]\times[d_{\text{ff}},d]\to[B,T,d]\)
+\end{itemize}
+
+For \texttt{TransformerLM} outside the \texttt{TransformerBlock}s:
+\begin{itemize}
+    \item Final output projection: \([B,T,d]\times[d,\text{vocab\_size}]\to[B,T,\text{vocab\_size}]\)
+\end{itemize}
+
+One forward pass needs \(9\times48+1=433\) matrix multiplications.
+
+General rule for matrix multiplication FLOPs:
+\[
+([m,n]\times[n,p]) \Rightarrow 2mnp \text{ FLOPs}
+\]
+
+Using \(B=1\), \(T=1024\), \(d=1600\), \(h=25\), \(d_k=64\), \(d_{\text{ff}}=4288\), \(\text{vocab\_size}=50{,}257\):
+\begin{itemize}
+    \item Q, K, V, \(W_O\): each \(2BTdd=5{,}242{,}880{,}000\)
+    \item \(QK^\top\), attention-value: each \(2BhTTd_k=3{,}355{,}443{,}200\)
+    \item \(W_1, W_3, W_2\): each \(2BTdd_{\text{ff}}=14{,}050{,}918{,}400\)
+\end{itemize}
+
+Per-block FLOPs:
+\[
+4(5{,}242{,}880{,}000) + 2(3{,}355{,}443{,}200) + 3(14{,}050{,}918{,}400)
+= 69{,}835{,}161{,}600
+\]
+
+All 48 blocks:
+\[
+48\times69{,}835{,}161{,}600
+= 3{,}352{,}087{,}756{,}800
+\]
+
+Final output projection FLOPs:
+\[
+2BTd\cdot\text{vocab\_size}
+= 2\cdot1\cdot1024\cdot1600\cdot50{,}257
+= 164{,}682{,}137{,}600
+\]
+
+Total FLOPs in one forward pass:
+\[
+3{,}352{,}087{,}756{,}800 + 164{,}682{,}137{,}600
+= \boxed{3{,}516{,}769{,}894{,}400}
+\]
 
 \subsection*{(c)}
 \placeholder{One-to-two sentence response on highest-FLOP components.}

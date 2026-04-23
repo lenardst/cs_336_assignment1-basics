@@ -3,6 +3,7 @@ import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from itertools import chain
 
 import regex as re
 
@@ -70,10 +71,43 @@ def pre_tokenize(
     return pretokenized
 
 
+def _count_words_in_parts_batch(
+    args: tuple[list[str], tuple[str, ...], dict[str, int]],
+) -> dict[tuple[int, ...], int]:
+    parts, special_tokens, special_token_to_id = args
+    special_tokens_set = set(special_tokens)
+    word_counts: dict[tuple[int, ...], int] = {}
+
+    for part in parts:
+        if not part:
+            continue
+        if part in special_tokens_set:
+            word_tuple = (special_token_to_id[part],)
+            word_counts[word_tuple] = word_counts.get(word_tuple, 0) + 1
+            continue
+
+        for match in re.finditer(PRETOKEN_PATTERN, part):
+            word_tuple = tuple(match.group(0).encode("utf-8"))
+            word_counts[word_tuple] = word_counts.get(word_tuple, 0) + 1
+
+    return word_counts
+
+
+def _merge_word_counts_into(
+    destination: dict[tuple[int, ...], int],
+    source: dict[tuple[int, ...], int],
+) -> None:
+    for word_tuple, count in source.items():
+        destination[word_tuple] = destination.get(word_tuple, 0) + count
+
+
 class BPE_Tokenizer:
     def __init__(self, special_tokens: list[str]):
         self.special_tokens = special_tokens
         self.vocabulary: dict[int, bytes] = self._init_vocab(special_tokens)
+        self.special_token_to_id: dict[str, int] = {
+            token: 256 + i for i, token in enumerate(special_tokens)
+        }
         self.merges: list[tuple[bytes, bytes]] = []
 
     def _init_vocab(self, special_tokens: list[str]) -> dict[int, bytes]:
@@ -103,32 +137,110 @@ class BPE_Tokenizer:
         chunks = re.split(f"({pattern})", text)
         return chunks
 
-    def count_words(self, tokenized_text: list[str]) -> dict[tuple[bytes, ...], int]:
-        word_counts: dict[tuple[bytes, ...], int] = {}
+    def count_words(self, tokenized_text: list[str]) -> dict[tuple[int, ...], int]:
+        word_counts: dict[tuple[int, ...], int] = {}
         special_tokens_set = set(self.special_tokens)
 
         for word in tokenized_text:
             # Keep special tokens atomic so BPE never merges inside them.
             if word in special_tokens_set:
-                word_tuple = (word.encode("utf-8"),)
+                word_tuple = (self.special_token_to_id[word],)
             else:
-                word_tuple = tuple(bytes([b]) for b in word.encode("utf-8"))
+                word_tuple = tuple(word.encode("utf-8"))
             if word_tuple in word_counts:
                 word_counts[word_tuple] += 1
             else:
                 word_counts[word_tuple] = 1
         return word_counts
 
+    def _iter_text_parts_by_special_tokens(
+        self,
+        file_path: str,
+        read_chars: int = 4_000_000,
+    ):
+        """Yield alternating non-special text and matched special-token parts."""
+        if not self.special_tokens:
+            with open(file_path, encoding="utf-8") as file:
+                yield file.read()
+            return
+
+        pattern = re.compile(
+            "|".join(re.escape(token) for token in sorted(self.special_tokens, key=len, reverse=True))
+        )
+        buffer = ""
+        with open(file_path, encoding="utf-8") as file:
+            while True:
+                chunk = file.read(read_chars)
+                if not chunk:
+                    break
+                buffer += chunk
+                start = 0
+                for match in pattern.finditer(buffer):
+                    if match.start() > start:
+                        yield buffer[start:match.start()]
+                    yield match.group(0)
+                    start = match.end()
+                buffer = buffer[start:]
+            if buffer:
+                yield buffer
+
+    def count_words_from_file(self, file_path: str) -> dict[tuple[int, ...], int]:
+        """
+        Stream pre-tokenization/counting from file to avoid materializing
+        the full corpus and pretokenized token list in memory.
+        """
+        def iter_part_batches(parts_per_batch: int = 4096):
+            batch: list[str] = []
+            for part in self._iter_text_parts_by_special_tokens(file_path):
+                batch.append(part)
+                if len(batch) >= parts_per_batch:
+                    yield batch
+                    batch = []
+            if batch:
+                yield batch
+
+        word_counts: dict[tuple[int, ...], int] = {}
+        num_processes = os.cpu_count() or 1
+        min_parallel_batches = 2
+        batch_iterator = iter_part_batches()
+        prefetched_batches: list[list[str]] = []
+        for _ in range(min_parallel_batches):
+            try:
+                prefetched_batches.append(next(batch_iterator))
+            except StopIteration:
+                break
+
+        all_batches = chain(prefetched_batches, batch_iterator)
+        special_tokens_tuple = tuple(self.special_tokens)
+
+        if num_processes <= 1 or len(prefetched_batches) < min_parallel_batches:
+            for parts_batch in all_batches:
+                local_counts = _count_words_in_parts_batch(
+                    (parts_batch, special_tokens_tuple, self.special_token_to_id)
+                )
+                _merge_word_counts_into(word_counts, local_counts)
+            return word_counts
+
+        with mp.Pool(processes=num_processes) as pool:
+            worker_inputs = (
+                (parts_batch, special_tokens_tuple, self.special_token_to_id)
+                for parts_batch in all_batches
+            )
+            for local_counts in pool.imap_unordered(_count_words_in_parts_batch, worker_inputs):
+                _merge_word_counts_into(word_counts, local_counts)
+
+        return word_counts
+
     def initial_pair_counts(
-        self, pre_tokenized_counts: dict[tuple[bytes, ...], int]
-    ) -> dict[tuple[bytes, bytes], int]:
-        pair_counts: dict[tuple[bytes, bytes], int] = {}
+        self, pre_tokenized_counts: dict[tuple[int, ...], int]
+    ) -> dict[tuple[int, int], int]:
+        pair_counts: dict[tuple[int, int], int] = {}
         for word_tuple, count in pre_tokenized_counts.items():
             tuple_size = len(word_tuple)
             if tuple_size > 1:
                 for start_position in range(tuple_size - 1):
-                    first_char = word_tuple[start_position]
-                    second_char = word_tuple[start_position + 1]
+                    first_char: int = word_tuple[start_position]
+                    second_char: int = word_tuple[start_position + 1]
                     pair_tuple = (first_char, second_char)
                     if pair_tuple in pair_counts:
                         pair_counts[pair_tuple] += count
@@ -138,10 +250,11 @@ class BPE_Tokenizer:
 
     def merge_tokens_words_element(
         self,
-        to_merge: tuple[bytes, bytes],
-        tokenized_counts: dict[tuple[bytes, ...], int],
-    ) -> dict[tuple[bytes, ...], int]:
+        to_merge: tuple[int, int],
+        tokenized_counts: dict[tuple[int, ...], int],
+    ) -> dict[tuple[int, ...], int]:
         first, second = to_merge
+        merged_id = len(self.vocabulary)
         new_tokenized_counts = tokenized_counts.copy()
         for word_tuple in tokenized_counts:
             new_tuple = []
@@ -152,7 +265,7 @@ class BPE_Tokenizer:
                     and word_tuple[i] == first
                     and word_tuple[i + 1] == second
                 ):
-                    new_tuple.append(first + second)
+                    new_tuple.append(merged_id)
                     i += 2
                 else:
                     new_tuple.append(word_tuple[i])
@@ -160,14 +273,14 @@ class BPE_Tokenizer:
             new_tokenized_counts[tuple(new_tuple)] = new_tokenized_counts.pop(word_tuple)
         return new_tokenized_counts
 
-    def is_subsequence(self, sub: tuple[bytes, ...], main: tuple[bytes, ...]) -> bool:
+    def is_subsequence(self, sub: tuple[int, ...], main: tuple[int, ...]) -> bool:
         n, m = len(sub), len(main)
         return any(main[i : i + n] == sub for i in range(m - n + 1))
 
     def build_pair_index(
-        self, tokenized_counts: dict[tuple[bytes, ...], int]
-    ) -> dict[tuple[bytes, bytes], set[tuple[bytes, ...]]]:
-        pair_index: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]] = {}
+        self, tokenized_counts: dict[tuple[int, ...], int]
+    ) -> dict[tuple[int, int], set[tuple[int, ...]]]:
+        pair_index: dict[tuple[int, int], set[tuple[int, ...]]] = {}
         for word_tuple in tokenized_counts:
             for i in range(len(word_tuple) - 1):
                 pair = (word_tuple[i], word_tuple[i + 1])
@@ -178,13 +291,13 @@ class BPE_Tokenizer:
 
     def apply_merge(
         self,
-        best_pair: tuple[bytes, bytes],
-        tokenized_counts: dict[tuple[bytes, ...], int],
-        pair_counts: dict[tuple[bytes, bytes], int],
-        pair_index: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]],
+        best_pair: tuple[int, int],
+        merged_id: int,
+        tokenized_counts: dict[tuple[int, ...], int],
+        pair_counts: dict[tuple[int, int], int],
+        pair_index: dict[tuple[int, int], set[tuple[int, ...]]],
     ) -> None:
         first, second = best_pair
-        merged = first + second
         affected_words = list(pair_index.get(best_pair, set()))
 
         for word_tuple in affected_words:
@@ -202,7 +315,7 @@ class BPE_Tokenizer:
             i = 0
             while i < len(word_tuple):
                 if i < len(word_tuple) - 1 and word_tuple[i] == first and word_tuple[i + 1] == second:
-                    new_list.append(merged)
+                    new_list.append(merged_id)
                     i += 2
                 else:
                     new_list.append(word_tuple[i])
@@ -222,12 +335,13 @@ class BPE_Tokenizer:
 
     def update_word_pairs(
         self,
-        to_merge: tuple[bytes, bytes],
-        pair_counts: dict[tuple[bytes, bytes], int],
-        tokenized_counts: dict[tuple[bytes, ...], int],
-    ) -> dict[tuple[bytes, bytes], int]:
+        to_merge: tuple[int, int],
+        pair_counts: dict[tuple[int, int], int],
+        tokenized_counts: dict[tuple[int, ...], int],
+    ) -> dict[tuple[int, int], int]:
         first, second = to_merge
-        affected_tokens = {first, second, first + second}
+        merged_id = len(self.vocabulary)
+        affected_tokens = {first, second, merged_id}
 
         # Keep unaffected pairs as-is.
         new_pair_counts = {
@@ -256,11 +370,7 @@ class BPE_Tokenizer:
         include_timestamps: bool = False,
         progress_callback: Callable[[str], None] | None = None,
     ):
-        with open(file_path, encoding="utf-8") as file:
-            text = file.read()
-        pre_tokenized_text = pre_tokenize(text, self.special_tokens)
-        pre_tokenized_counts = self.count_words(pre_tokenized_text)
-        token_counts = pre_tokenized_counts
+        token_counts = self.count_words_from_file(file_path)
         pair_counts = self.initial_pair_counts(token_counts)
         pair_index = self.build_pair_index(token_counts)
         start_time = time.perf_counter()
@@ -284,12 +394,17 @@ class BPE_Tokenizer:
         while len(self.vocabulary) < max_vocab_size:
             best_pair, highest_count = max(
                 pair_counts.items(),
-                key=lambda item: (item[1], item[0])
+                key=lambda item: (
+                    item[1],
+                    (self.vocabulary[item[0][0]], self.vocabulary[item[0][1]]),
+                ),
             )
-            self._add_merge(best_pair[0], best_pair[1])
-            new_word = best_pair[0] + best_pair[1]
-            self._add_to_vocab(new_word)
-            self.apply_merge(best_pair, token_counts, pair_counts, pair_index)
+            first_token = self.vocabulary[best_pair[0]]
+            second_token = self.vocabulary[best_pair[1]]
+            self._add_merge(first_token, second_token)
+            new_word = first_token + second_token
+            merged_id = self._add_to_vocab(new_word)
+            self.apply_merge(best_pair, merged_id, token_counts, pair_counts, pair_index)
             merges_completed = len(self.vocabulary) - initial_vocab_size
             now = time.perf_counter()
             merge_boundary = (

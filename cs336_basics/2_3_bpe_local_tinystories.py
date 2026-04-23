@@ -5,8 +5,8 @@ import time
 
 train_bpe = importlib.import_module("cs336_basics.2_0_bpe_tokenizer").train_bpe
 
-input_path = "data/owt_valid.txt"
-max_vocab_size = 32_000
+input_path = "data/TinyStoriesV2-GPT4-train.txt"
+max_vocab_size = 10_000
 special_tokens = ["<|endoftext|>"]
 
 start_time = time.perf_counter()
