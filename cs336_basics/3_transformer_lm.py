@@ -10,7 +10,7 @@ class Linear(Module):
         self.out_features = out_features
 
         torch_weights = torch.empty(out_features, in_features, device=device, dtype=dtype)
-        std = 2 / (in_features + out_features)
+        std = (2 / (in_features + out_features)) ** 0.5
 
         self.w = Parameter(
             torch.nn.init.trunc_normal_(
@@ -62,7 +62,7 @@ class RMSNorm(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         in_dtype = x.dtype
         x = x.to(torch.float32)
-        rms_a = torch.sqrt(einsum(x, x, 'batch sequence_len d_model, batch sequence_len d_model -> batch sequence_len') / self.d_model + + self.eps)
+        rms_a = torch.sqrt(einsum(x, x, 'batch sequence_len d_model, batch sequence_len d_model -> batch sequence_len') / self.d_model + self.eps)
         rms_norm = einsum(x, 1.0 / rms_a, self.g, 'batch sequence_len d_model, batch sequence_len, d_model -> batch sequence_len d_model')
         return rms_norm.to(in_dtype)
 
