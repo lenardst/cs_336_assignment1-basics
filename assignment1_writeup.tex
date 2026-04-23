@@ -22,7 +22,65 @@
 
 \section{Problem (unicode1): Understanding Unicode}
 \subsection*{(a)}
-The expression \texttt{chr(0)} returns the Unicode null character, \texttt{U+0000} (NUL).
+Let \(B=\text{batch\_size}\), \(V=\text{vocab\_size}\), \(T=\text{context\_length}\), \(L=\text{num\_layers}\), \(d=d_{\text{model}}\), \(h=\text{num\_heads}\), \(d_{\text{ff}}=\frac{8}{3}d\). Float32 uses 4 bytes/element.
+
+\[
+P = 2Vd + L\!\left(4d^2 + 3dd_{\text{ff}} + 2d\right) + d
+:= 2Vd + L(12d^2 + 2d) + d .
+\]
+
+\[
+M_{\text{params}} = 4P \text{ bytes}.
+\]
+
+\[
+\begin{aligned}
+A_{\text{block}} &= \underbrace{2BTd}_{\text{2 RMSNorms}}
++ \underbrace{(3BTd + BhT^2 + BhT^2 + BTd + BTd)}_{\text{QKV, }QK^\top,\text{ softmax, weighted sum, }W_O}
++ \underbrace{(BTd_{\text{ff}} + BTd_{\text{ff}} + BTd_{\text{ff}} + BTd_{\text{ff}} + BTd)}_{\text{W1, W3, SiLU, product, W2}} \\
+&= 8BTd + 4BTd_{\text{ff}} + 2BhT^2
+:= \frac{56}{3}BTd + 2BhT^2 .
+\end{aligned}
+\]
+
+\[
+A_{\text{extra}} = BTd + 2BTV.
+\]
+
+\[
+A = L A_{\text{block}} + A_{\text{extra}}
+:= L\!\left(\frac{56}{3}BTd + 2BhT^2\right) + BTd + 2BTV .
+\]
+
+\[
+M_{\text{act}} = 4A \text{ bytes}.
+\]
+
+\[
+M_{\text{grad}} = 4P \text{ bytes}.
+\]
+
+\[
+M_{\text{opt}} = 8P \text{ bytes}.
+\]
+
+\[
+M_{\text{peak}} = M_{\text{params}} + M_{\text{act}} + M_{\text{grad}} + M_{\text{opt}}
+:= 16P + 4A \text{ bytes}.
+\]
+\[
+\boxed{
+M_{\text{peak}}
+= 32\,\text{vocab\_size}\,d_{\text{model}}
++ 192\,\text{num\_layers}\,d_{\text{model}}^2
++ 32\,\text{num\_layers}\,d_{\text{model}}
++ 16\,d_{\text{model}}
++ \frac{224}{3}\,\text{num\_layers}\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
++ 8\,\text{num\_layers}\,\text{batch\_size}\,\text{num\_heads}\,\text{context\_length}^2
++ 4\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
++ 8\,\text{batch\_size}\,\text{context\_length}\,\text{vocab\_size}
+\;\text{bytes}.}
+\]
 
 \subsection*{(b)}
 Its string representation shows an escape sequence like \texttt{'\textbackslash x00'}, while printing it produces a non-printing control character (typically visually empty output).
@@ -167,14 +225,86 @@ As model size increases, FFN and projection-heavy terms take a larger share of t
 For GPT-2 XL, increasing context length from \(1024\) to \(16{,}384\) raises one-forward-pass matmul FLOPs from \(3{,}516{,}769{,}894{,}400\) to \(133{,}577{,}729{,}638{,}400\), i.e. \(\approx 37.98\times\) higher. The relative FLOP share shifts strongly toward the \(T^2\) attention terms: attention scores + attention-value rise from \(9.16\%\) to \(61.73\%\), while FFN (\(W_1/W_3/W_2\)) falls from \(57.51\%\) to \(24.24\%\) and final projection falls from \(4.68\%\) to \(1.97\%\).
 
 \section{Problem (learning\_rate\_tuning): Tuning the Learning Rate (SGD toy example)}
-\placeholder{One-to-two sentence response describing observed behavior for lr = 1e1, 1e2, 1e3.}
+With 1e1 it decreases over time. With 1e2 it decreases faster. With 1e3 it diverges.
 
 \section{Problem (adamw\_accounting): Resource Accounting for Training with AdamW}
 \subsection*{(a)}
-\placeholder{Algebraic expressions for parameters, activations, gradients, optimizer state, and total memory.}
+Let \(B=\text{batch\_size}\), \(V=\text{vocab\_size}\), \(T=\text{context\_length}\), \(L=\text{num\_layers}\), \(d=d_{\text{model}}\), \(h=\text{num\_heads}\), \(d_{\text{ff}}=\frac{8}{3}d\). Float32 uses 4 bytes/element.
+
+\[
+P = 2Vd + L\!\left(4d^2 + 3dd_{\text{ff}} + 2d\right) + d
+= 2Vd + L(12d^2 + 2d) + d .
+\]
+
+\[
+M_{\text{params}} = 4P \text{ bytes}.
+\]
+
+
+\[
+\begin{aligned}
+A_{\text{block}} &= \underbrace{2BTd}_{\text{2 RMSNorms}}
++ \underbrace{(3BTd + BhT^2 + BhT^2 + BTd + BTd)}_{\text{QKV, }QK^\top,\text{ softmax, weighted sum, }W_O}
++ \underbrace{(BTd_{\text{ff}} + BTd_{\text{ff}} + BTd_{\text{ff}} + BTd_{\text{ff}} + BTd)}_{\text{W1, W3, SiLU, product, W2}} \\
+&= 8BTd + 4BTd_{\text{ff}} + 2BhT^2
+= \frac{56}{3}BTd + 2BhT^2 .
+\end{aligned}
+\]
+
+\[
+A_{\text{extra}} = BTd + 2BTV.
+\]
+
+\[
+A = L A_{\text{block}} + A_{\text{extra}}
+= L\!\left(\frac{56}{3}BTd + 2BhT^2\right) + BTd + 2BTV .
+\]
+
+\[
+M_{\text{act}} = 4A \text{ bytes}.
+\]
+
+
+\[
+M_{\text{grad}} = 4P \text{ bytes}.
+\]
+
+
+\[
+M_{\text{opt}} = 8P \text{ bytes}.
+\]
+
+
+\[
+M_{\text{peak}} = M_{\text{params}} + M_{\text{act}} + M_{\text{grad}} + M_{\text{opt}}
+= 16P + 4A \text{ bytes},
+\]
+\[
+\boxed{
+M_{\text{peak}}
+= 32\,\text{vocab\_size}\,d_{\text{model}}
++ 192\,\text{num\_layers}\,d_{\text{model}}^2
++ 32\,\text{num\_layers}\,d_{\text{model}}
++ 16\,d_{\text{model}}
++ \frac{224}{3}\,\text{num\_layers}\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
++ 8\,\text{num\_layers}\,\text{batch\_size}\,\text{num\_heads}\,\text{context\_length}^2
++ 4\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
++ 8\,\text{batch\_size}\,\text{context\_length}\,\text{vocab\_size}
+\;\text{bytes}.}
+\]
 
 \subsection*{(b)}
-\placeholder{GPT-2 XL instantiation as $a \cdot \text{batch\_size} + b$ and max batch size under 80GB.}
+Using \(V=50{,}257\), \(T=1024\), \(L=48\), \(d=1600\), \(h=25\), \(d_{\text{ff}}=4288\):
+\[
+M_{\text{peak}}(B)=aB+b
+=16{,}373{,}391{,}360\cdot B + 26{,}247{,}244{,}800
+\quad\text{bytes}.
+\]
+Under an 80GB budget (\(80{,}000{,}000{,}000\) bytes), the largest integer batch size is
+\[
+B_{\max}=\left\lfloor\frac{80{,}000{,}000{,}000-26{,}247{,}244{,}800}{16{,}373{,}391{,}360}\right\rfloor=3.
+\]
+Check: \(M_{\text{peak}}(3)=75{,}367{,}418{,}880<80{,}000{,}000{,}000\), while \(M_{\text{peak}}(4)=91{,}740{,}810{,}240>80{,}000{,}000{,}000\).
 
 \subsection*{(c)}
 \placeholder{Algebraic expression for one AdamW step FLOPs + brief justification.}

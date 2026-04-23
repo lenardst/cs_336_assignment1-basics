@@ -707,7 +707,11 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    import importlib
+
+    training_module = importlib.import_module("cs336_basics.4_training")
+    cross_entropy_fn = getattr(training_module, "cross_entropy")
+    return cross_entropy_fn(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -726,7 +730,30 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    import importlib
+
+    training_module = importlib.import_module("cs336_basics.4_training")
+    adamw_cls = getattr(training_module, "AdamW")
+
+    class AdamWAdapter(adamw_cls):
+        def __init__(
+            self,
+            params,
+            lr: float = 1e-3,
+            weight_decay: float = 0.0,
+            betas: tuple[float, float] = (0.9, 0.999),
+            eps: float = 1e-8,
+        ):
+            super().__init__(
+                params=params,
+                lr=lr,
+                beta1=betas[0],
+                beta2=betas[1],
+                lamb=weight_decay,
+                epsilon=eps,
+            )
+
+    return AdamWAdapter
 
 
 def run_get_lr_cosine_schedule(
