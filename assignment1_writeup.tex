@@ -307,10 +307,19 @@ B_{\max}=\left\lfloor\frac{80{,}000{,}000{,}000-26{,}247{,}244{,}800}{16{,}373{,
 Check: \(M_{\text{peak}}(3)=75{,}367{,}418{,}880<80{,}000{,}000{,}000\), while \(M_{\text{peak}}(4)=91{,}740{,}810{,}240>80{,}000{,}000{,}000\).
 
 \subsection*{(c)}
-\placeholder{Algebraic expression for one AdamW step FLOPs + brief justification.}
+\begin{align*}
+    \text{1. Weight decay:} \quad & p \gets p - (\eta \lambda) p && \text{(2 FLOPs)} \\
+    \text{2. First moment ($m$):} \quad & m \gets \beta_1 m + (1 - \beta_1) g && \text{(3 FLOPs)} \\
+    \text{3. Second moment ($v$):} \quad & v \gets \beta_2 v + (1 - \beta_2) g^2 && \text{(4 FLOPs)} \\
+    \text{4. Parameter update:} \quad & p \gets p - \alpha_t \frac{m}{\sqrt{v} + \epsilon} && \text{(5 FLOPs)} \\[1ex]
+    \textbf{Total:} \quad & \textbf{14 FLOPs per parameter} \implies \mathbf{14P \text{ FLOPs}} &&
+\end{align*}
 
 \subsection*{(d)}
-\placeholder{Estimated training time (hours) at 50\% MFU on one H100 + brief justification.}
+\[
+202.086 \text{ days} \times 24 \text{ hours/day} \approx \mathbf{4,850 \text{ hours}}.
+\]
+Justification: from part (transformer\_accounting), one forward pass for one sequence costs \(3{,}516{,}769{,}894{,}400\) FLOPs. Multiplying by \(\text{batch\_size}\) gives forward FLOPs per step, and using \(\approx 3\times\) forward for forward+backward gives training FLOPs per step. At 50\% MFU on one H100, effective throughput is \(495\times 10^{12}\times 0.5\) FLOPs/s, so training time is total FLOPs divided by this rate.
 
 \section{Problem (experiment\_log): Experiment Logging}
 \placeholder{Brief description of your logging infrastructure and where experiment logs/loss curves are recorded.}
