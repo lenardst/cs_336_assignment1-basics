@@ -851,7 +851,10 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.bpe_tokenizer import train_bpe
+    import importlib
+
+    tokenizer_module = importlib.import_module("cs336_basics.2_0_bpe_tokenizer")
+    train_bpe = getattr(tokenizer_module, "train_bpe")
 
     if kwargs:
         try:
