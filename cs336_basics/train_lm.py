@@ -338,7 +338,11 @@ def train(args: argparse.Namespace) -> None:
                 f"(device={args.device}, batch_size={args.batch_size}, context_length={args.context_length})"
             ) from exc
 
-        should_log_train = (i % args.train_log_interval == 0) or (i == args.max_iters - 1)
+        should_eval = (i % args.eval_interval == 0) or (i == args.max_iters - 1)
+        should_log_train = (
+            ((i % args.train_log_interval == 0) or (i == args.max_iters - 1))
+            and not should_eval
+        )
         if should_log_train:
             elapsed = time.perf_counter() - t0
             if wandb_run is not None:
@@ -358,7 +362,6 @@ def train(args: argparse.Namespace) -> None:
                 f"total_tokens_processed={total_tokens_processed} | t={elapsed:.1f}s"
             )
 
-        should_eval = (i % args.eval_interval == 0) or (i == args.max_iters - 1)
         if should_eval:
             val_loss = estimate_loss(
                 model,
