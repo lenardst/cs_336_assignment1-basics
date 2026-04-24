@@ -349,7 +349,7 @@ To keep compute comparable, I held the token budget fixed at
 \[
 \text{batch\_size}\times \text{max\_iters}\times \text{context\_length}=327{,}680{,}000,
 \]
-using different \texttt{batch\_size} settings. Across all runs in the export, the best overall point was \texttt{batch\_size}=1, \(\eta=10^{-4}\), with \texttt{eval/train\_loss}=1.1619. Since batch size 1 is atypical for the main training configuration, I also report trends over practical batch sizes (\(64\) to \(1024\)).
+using different \texttt{batch\_size} settings. Across all runs in the export, the lowest training-side metric was \texttt{batch\_size}=1, \(\eta=10^{-4}\), with \texttt{train\_loss}=1.1619; however, the true validation result for that run was worse (\texttt{val\_loss}=1.6665), so it is not the best model by validation quality. I therefore report trends over practical batch sizes (\(64\) to \(1024\)).
 
 Best \texttt{eval/train\_loss} observed for each learning rate (over all batch sizes):
 \begin{center}
@@ -370,7 +370,7 @@ Learning rate \(\eta\) & Best \texttt{eval/train\_loss} \\
 \end{center}
 
 \subsection*{(Validation target)}
-Yes---the TinyStories target was met. The best practical-batch run reached \(\approx 1.31\) (\texttt{batch\_size}=256, \(\eta=10^{-2}\), \texttt{eval/train\_loss}=1.3116), which is below the \(1.45\) threshold.
+Yes---the TinyStories target was met. Using validation quality (and excluding the misleading \texttt{batch\_size}=1 run with \texttt{val\_loss}=1.6665), the best practical-batch run reached \(\approx 1.31\) (\texttt{batch\_size}=256, \(\eta=10^{-2}\), \texttt{eval/train\_loss}=1.3116), which is below the \(1.45\) threshold.
 
 \subsection*{(b)}
 With the cosine schedule, none of these runs showed hard numerical divergence, but optimization quality varied strongly with \(\eta\). Very small rates (\(10^{-5}\), \(3\times 10^{-5}\)) underfit within budget (loss \(\approx 2.0+\)). Mid-range rates (\(10^{-3}\) to \(10^{-2}\)) performed best, while too-large rates (e.g., \(3\times 10^{-2}\)) degraded final quality. In this sweep, a good practical operating point is \(\eta \in [3\times 10^{-3}, 10^{-2}]\), with the best practical result at \(\eta=10^{-2}\) for \texttt{batch\_size}=256.
@@ -388,11 +388,20 @@ This behavior matches the expected pattern for cosine decay with short warmup: r
 
 \section{Problem (batch\_size\_experiment): Batch Size Variations}
 Using the same W\&B export, I compared the best retuned learning rate for each batch size:
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.49\textwidth]{\detokenize{figures/batch_size/learning_curves_incl_b1.png}}
+    \hfill
+    \includegraphics[width=0.49\textwidth]{\detokenize{figures/batch_size/learning_curves_excl_b1.png}}
+    \caption{Batch-size learning curves at each batch's best-tuned learning rate. Left: including \texttt{batch\_size}=1. Right: excluding \texttt{batch\_size}=1 for readability of practical batch sizes.}
+    \label{fig:batch-size-best-lr-curves}
+\end{figure}
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
 Batch size & Best learning rate & Best \texttt{eval/train\_loss} \\
 \midrule
+1 & \(10^{-4}\) & 1.1619 \\
 64 & \(10^{-3}\) & 1.3606 \\
 128 & \(3\times 10^{-3}\) & 1.3427 \\
 256 & \(10^{-2}\) & \textbf{1.3116} \\
@@ -401,7 +410,7 @@ Batch size & Best learning rate & Best \texttt{eval/train\_loss} \\
 \end{tabular}
 \end{center}
 
-Findings: increasing batch size from 64 to 256 improved the best achievable loss in this budgeted sweep, but pushing to 1024 hurt again. The best run among practical settings was \texttt{batch\_size}=256 with \(\eta=10^{-2}\). This suggests a non-monotonic batch-size tradeoff: larger batches can help optimization up to a point, after which reduced gradient noise may hurt generalization/progress at fixed token budget.
+Findings: although \texttt{batch\_size}=1 at \(\eta=10^{-4}\) has the lowest training loss (\(1.1619\)), its true validation loss is \(1.6665\), so it overfits/does not generalize as well as larger-batch settings. Among practical larger batches, increasing batch size from 64 to 256 improved the best achievable loss, but pushing to 1024 hurt again. The best practical setting in this sweep is \texttt{batch\_size}=256 with \(\eta=10^{-2}\) (best \texttt{eval/train\_loss} \(=1.3116\)), suggesting a non-monotonic batch-size tradeoff at fixed token budget.
 
 \section{Problem (generate): Generate Text}
 Text dump generated from \texttt{token-tango-b256-lr3e-3-327m}:
@@ -422,7 +431,13 @@ Runs (\(327.68\)M tokens):
     \item No-RMSNorm, \(\eta=0.0028\): final \texttt{NaN}, best finite \(2.2182\) (step 600).
     \item No-RMSNorm, \(\eta=0.0007\): final \(1.4111\), best \(1.4077\).
 \end{itemize}
-Interpretation: best stable no-RMSNorm run is \(+0.0751\) worse than baseline (final val loss).
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/layernorm.png}}
+    \caption{Q7 layer-norm ablation learning curves (\texttt{eval/val\_loss}): baseline RMSNorm vs.\ no-RMSNorm runs.}
+    \label{fig:q7-layernorm}
+\end{figure}
+Interpretation: as shown in Figure~\ref{fig:q7-layernorm}, removing RMSNorm significantly hurts stability and quality. The no-RMSNorm run at \(\eta=0.0028\) fails (NaN), and even the stable retuned run (\(\eta=0.0007\)) remains \(+0.0751\) worse than baseline in final validation loss.
 
 \section{Problem (pre\_norm\_ablation): Implement Post-Norm and Train}
 Runs:
@@ -430,7 +445,13 @@ Runs:
     \item Pre-norm baseline: final \(1.3320\), best \(1.3236\).
     \item Post-norm ablation: final \(1.3476\), best \(1.3456\).
 \end{itemize}
-Interpretation: post-norm is \(+0.0157\) worse than pre-norm (final val loss).
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/prenorm.png}}
+    \caption{Q7 pre-norm vs.\ post-norm learning curves (\texttt{eval/val\_loss}).}
+    \label{fig:q7-prenorm}
+\end{figure}
+Interpretation: Figure~\ref{fig:q7-prenorm} shows both runs improve similarly, but pre-norm is consistently slightly lower. Final post-norm loss is \(+0.0157\) worse than pre-norm.
 
 \section{Problem (no\_pos\_emb): Implement NoPE}
 Runs:
@@ -438,7 +459,13 @@ Runs:
     \item RoPE baseline: final \(1.3243\), best \(1.3243\).
     \item NoPE ablation: final \(1.3836\), best \(1.3836\).
 \end{itemize}
-Interpretation: NoPE is \(+0.0593\) worse than RoPE (final val loss).
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/nopos.png}}
+    \caption{Q7 positional-encoding ablation learning curves (\texttt{eval/val\_loss}): RoPE baseline vs.\ NoPE.}
+    \label{fig:q7-nope}
+\end{figure}
+Interpretation: in Figure~\ref{fig:q7-nope}, both models learn quickly at first, but the RoPE baseline stays lower throughout training and converges better. NoPE is \(+0.0593\) worse than RoPE in final validation loss.
 
 \section{Problem (swiglu\_ablation): SwiGLU vs.\ SiLU}
 Runs:
@@ -446,12 +473,28 @@ Runs:
     \item SwiGLU baseline: final \(1.3308\), best \(1.3251\).
     \item SiLU ablation: final \(1.3383\), best \(1.3383\).
 \end{itemize}
-Interpretation: SiLU is \(+0.0075\) worse than SwiGLU (final val loss).
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/swiglu.png}}
+    \caption{Q7 feed-forward activation comparison (\texttt{eval/val\_loss}): SwiGLU baseline vs.\ SiLU.}
+    \label{fig:q7-swiglu}
+\end{figure}
+Interpretation: Figure~\ref{fig:q7-swiglu} shows nearly overlapping curves, with SwiGLU maintaining a small but consistent advantage late in training. SiLU finishes \(+0.0075\) worse than SwiGLU in final validation loss.
 
 \section{Problem (main\_experiment): Experiment on OpenWebText}
-\placeholder{Learning curve on OpenWebText + discussion of loss differences vs TinyStories.}
+Using the latest OpenWebText checkpoint (\texttt{checkpoints/owt\_bs256\_lr0.01\_10k\_vocab32k.pt}), generation with \texttt{max\_new\_tokens=256}, \texttt{temperature=0.9}, and \texttt{top\_p=0.95} produced a 263-token sample (no \texttt{<|endoftext|>} encountered before the length cap). The output is:
 
-\placeholder{Generated text in TinyStories-style format + discussion of fluency and quality gap.}
+\begin{verbatim}
+In a surprising turn of events, the billionaire played a major role in selling the shirts to Korean businessman Kim Il-sung. "Nobody was working in Chinese," he told reporters after receiving an Internet cover story that circulated online about the events. "He's not living in China."
+
+Jennifer Laney, a partner with the Hymen business group, said she and her husband do not have clients. In fact, she insisted, she had no credit for having received their American Embassy notice. "It's a bad business," Laney said.
+
+The point has changed with the notorious bitcoin vendor. In July, a Chinese hacker and a banker filed a $1 million lawsuit against 12 investors. On Thursday, an attorney at Goldman Sachs declined to comment on the case.
+
+South Park's income in China is estimated to be about $1 billion, according to a 2011 Chinese Election Commission survey. The United States Congressmen's Office (U.S.A.) found that this year, a 20 percent increase in salaries for the registration and qualification requirements of a living student in the U.S. was the median for the state's student salary in 2013. In that same year, the country began to recover from foreign currency imports, including imports in exchange for
+\end{verbatim}
+
+Fluency discussion: the sample is locally fluent (grammatical sentences and plausible news-style phrasing), but globally inconsistent (topic drift and entity/claim incoherence across paragraphs). At least two factors affecting quality are: (1) \textbf{decoding settings} (higher temperature/top-p increase diversity but can reduce consistency), and (2) \textbf{training scale/checkpoint quality} (more high-quality tokens and a better-converged checkpoint generally improve long-range coherence and factual consistency). Additional contributors include \textbf{model capacity/context length} and \textbf{tokenizer-domain match}.
 
 \section{Problem (leaderboard): Leaderboard Submission}
 \placeholder{Final validation loss, learning curve with wall-clock x-axis under 45 minutes, and description of modifications/hyperparameters.}
