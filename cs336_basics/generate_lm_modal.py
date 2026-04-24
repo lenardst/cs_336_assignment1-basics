@@ -155,6 +155,7 @@ def run_generate_remote(
     model_state = _normalize_state_dict_keys(checkpoint["model_state_dict"])
     model.load_state_dict(model_state)
     model.eval()
+    print(f"[checkpoint] loaded iteration={checkpoint['iteration']}")
 
     generated_ids = decode(
         model=model,

@@ -335,55 +335,44 @@ For Question 7.1, experiment logging is implemented in \texttt{cs336\_basics/run
 
 \section{Problem (learning\_rate): Tune the Learning Rate on TinyStories}
 \subsection*{(a)}
-I ran a broad, log-scale sweep over learning rates and selected runs using the exported \texttt{eval/train\_loss} metric from Weights \& Biases. The sweep covered
+I ran a log-scale learning-rate sweep with fixed \texttt{batch\_size}=128, \texttt{max\_iters}=10{,}000, and \texttt{context\_length}=256. The sweep covered
 \[
-\eta \in \{10^{-5}, 3\times 10^{-5}, 10^{-4}, 3\times 10^{-4}, 10^{-3}, 3\times 10^{-3}, 10^{-2}, 3\times 10^{-2}\}.
+\eta \in \{10^{-4}, 3\times 10^{-4}, 10^{-3}, 3\times 10^{-3}, 10^{-2}, 3\times 10^{-2}, 10^{-1}, 1\}.
 \]
-To keep compute comparable, I held the token budget fixed at
+All runs therefore used the same token budget:
 \[
 \text{batch\_size}\times \text{max\_iters}\times \text{context\_length}=327{,}680{,}000,
 \]
-using different \texttt{batch\_size} settings.
+and results were compared using validation loss from the logged checkpoints.
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.49\textwidth]{\detokenize{Learning Rate report/charts/Section-1-Panel-1-sif72gyx9.png}}
-    \hfill
-    \includegraphics[width=0.49\textwidth]{\detokenize{Learning Rate report/charts/Section-1-Panel-2-swphbhjsp.png}}
-    \caption{Learning-rate sweep curves from the report, showing train/validation dynamics across low to high learning rates.}
-    \label{fig:learning-rate-sweep}
-\end{figure}
-
-Across all runs in the export, the lowest training-side metric was \texttt{batch\_size}=1, \(\eta=10^{-4}\), with \texttt{train\_loss}=1.1619; however, the true validation result for that run was worse (\texttt{val\_loss}=1.6665), so it is not the best model by validation quality. I therefore report trends over practical batch sizes (\(64\) to \(1024\)).
-
-Best \texttt{eval/train\_loss} observed for each learning rate (over all batch sizes):
+Best observed \texttt{val\_loss} for each learning rate:
 \begin{center}
-\begin{tabular}{lr}
+\begin{tabular}{lrr}
 \toprule
-Learning rate \(\eta\) & Best \texttt{eval/train\_loss} \\
+Learning rate \(\eta\) & Best \texttt{val\_loss} & Final \texttt{val\_loss} \\
 \midrule
-\(10^{-5}\) & 1.9974 \\
-\(3\times 10^{-5}\) & 1.9543 \\
-\(10^{-4}\) & \textbf{1.1619} \\
-\(3\times 10^{-4}\) & 1.4576 \\
-\(10^{-3}\) & 1.3606 \\
-\(3\times 10^{-3}\) & 1.3427 \\
-\(10^{-2}\) & 1.3116 \\
-\(3\times 10^{-2}\) & 1.3817 \\
+\(10^{-4}\) & 1.7587 & 1.7641 \\
+\(3\times 10^{-4}\) & 1.5148 & 1.5321 \\
+\(10^{-3}\) & 1.3784 & 1.3784 \\
+\(3\times 10^{-3}\) & 1.3229 & 1.3278 \\
+\(10^{-2}\) & \textbf{1.3107} & \textbf{1.3107} \\
+\(3\times 10^{-2}\) & 1.3460 & 1.3493 \\
+\(10^{-1}\) & 1.9483 & 1.9807 \\
+\(1\) & 2.8287 & 2.8287 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \subsection*{(Validation target)}
-Yes---the TinyStories target was met. Using validation quality (and excluding the misleading \texttt{batch\_size}=1 run with \texttt{val\_loss}=1.6665), the best practical-batch run reached \(\approx 1.31\) (\texttt{batch\_size}=256, \(\eta=10^{-2}\), \texttt{eval/train\_loss}=1.3116), which is below the \(1.45\) threshold.
+Yes---the TinyStories target was met. The best run in this sweep reached \(\texttt{val\_loss}=1.3107\) at \(\eta=10^{-2}\), which is below the \(1.45\) threshold.
 
 \subsection*{(b)}
-With the cosine schedule, none of these runs showed hard numerical divergence, but optimization quality varied strongly with \(\eta\). Very small rates (\(10^{-5}\), \(3\times 10^{-5}\)) underfit within budget (loss \(\approx 2.0+\)). Mid-range rates (\(10^{-3}\) to \(10^{-2}\)) performed best, while too-large rates (e.g., \(3\times 10^{-2}\)) degraded final quality. In this sweep, a good practical operating point is \(\eta \in [3\times 10^{-3}, 10^{-2}]\), with the best practical result at \(\eta=10^{-2}\) for \texttt{batch\_size}=256.
+None of these runs showed hard numerical divergence (no NaNs/Infs and all runs reached step 10{,}000), but optimization quality varied strongly with \(\eta\). The \(\eta=1\) curve shows large early instability spikes in validation loss, then recovers to a much worse plateau than the mid-range rates. The best region is \(\eta \in [3\times 10^{-3}, 10^{-2}]\), with the best result at \(\eta=10^{-2}\). Too-small rates (\(10^{-4}, 3\times 10^{-4}\)) underfit within budget, and too-large rates (\(10^{-1}, 1\)) train to clearly worse final loss.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.99\textwidth]{\detokenize{divergent_run.png}}
-    \caption{Learning curves for varying LRs (not all shown here)}
+    \includegraphics[width=0.99\textwidth]{\detokenize{figures/learning_rate/lr_sweep_20260424.png}}
+    \caption{Validation-loss curves from the learning-rate sweep submitted in this run (\(\eta \in \{10^{-4},3\times10^{-4},10^{-3},3\times10^{-3},10^{-2},3\times10^{-2},10^{-1},1\}\), \texttt{batch\_size}=128). The \(\eta=1\) trace is highly unstable early, while mid-range rates achieve the best final losses.}
     \label{fig:lr-divergence}
 \end{figure}
 
@@ -486,6 +475,17 @@ Runs:
 Interpretation: Figure~\ref{fig:q7-swiglu} shows nearly overlapping curves, with SwiGLU maintaining a small but consistent advantage late in training. SiLU finishes \(+0.0075\) worse than SwiGLU in final validation loss.
 
 \section{Problem (main\_experiment): Experiment on OpenWebText}
+The OpenWebText run (\texttt{owt\_bs256\_lr0.01\_10k\_vocab32k}) is shown below, compared against the TinyStories reference curve:
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{\detokenize{figures/main_experiment/owt_vs_tiny_curves.png}}
+    \caption{Validation-loss curves for TinyStories vs.\ OpenWebText. The OpenWebText run starts at \(\approx 10.39\) and reaches \(\texttt{val\_loss}\approx 3.74\) by step 10{,}000, while TinyStories reaches \(\approx 1.31\) under the same token budget style.}
+    \label{fig:owt-vs-tiny-val-loss}
+\end{figure}
+
+Compared with TinyStories, OpenWebText converges much more slowly and to a substantially higher loss (TinyStories best \(\approx 1.31\) vs.\ OpenWebText final \(\approx 3.74\)). This is expected: OpenWebText is more diverse, noisier, and less repetitive than TinyStories, so the conditional next-token distribution has higher entropy and is harder for a small 4-layer model to fit with the same compute budget. In short, the higher OWT loss does not necessarily indicate a broken pipeline; it reflects a more difficult dataset/model-capacity regime.
+
 Using the latest OpenWebText checkpoint (\texttt{checkpoints/owt\_bs256\_lr0.01\_10k\_vocab32k.pt}), generation with \texttt{max\_new\_tokens=256}, \texttt{temperature=0.9}, and \texttt{top\_p=0.95} produced a 263-token sample (no \texttt{<|endoftext|>} encountered before the length cap). The output is:
 
 \begin{verbatim}
