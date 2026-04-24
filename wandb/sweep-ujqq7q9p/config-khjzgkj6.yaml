@@ -1,0 +1,32 @@
+wandb_version: 1
+
+batch_size:
+  value: 64
+beta1:
+  value: 0.9
+beta2:
+  value: 0.95
+checkpoint_interval:
+  value: 10000
+compile:
+  value: default
+context_length:
+  value: 256
+dtype:
+  value: float32
+epsilon:
+  value: 1.0e-08
+eval_batches:
+  value: 2
+eval_interval:
+  value: 2000
+learning_rate:
+  value: 0.0012116102338623315
+max_iters:
+  value: 20000
+train_log_interval:
+  value: 500
+warmup_iters:
+  value: 200
+weight_decay:
+  value: 0.1
