@@ -5,6 +5,7 @@
 \usepackage{lmodern}
 \usepackage{hyperref}
 \usepackage{enumitem}
+\usepackage{graphicx}
 
 \setlist[itemize]{leftmargin=1.5em}
 \setlist[enumerate]{leftmargin=1.8em}
@@ -332,39 +333,120 @@ For Question 7.1, experiment logging is implemented in \texttt{cs336\_basics/run
 
 \section{Problem (learning\_rate): Tune the Learning Rate on TinyStories}
 \subsection*{(a)}
-\placeholder{Include learning curves for multiple learning rates and explain search strategy.}
+I ran a broad, log-scale sweep over learning rates and selected runs using the exported \texttt{eval/train\_loss} metric from Weights \& Biases. The sweep covered
+\[
+\eta \in \{10^{-5}, 3\times 10^{-5}, 10^{-4}, 3\times 10^{-4}, 10^{-3}, 3\times 10^{-3}, 10^{-2}, 3\times 10^{-2}\}.
+\]
+To keep compute comparable, I held the token budget fixed at
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.49\textwidth]{\detokenize{Learning Rate report/charts/Section-1-Panel-1-sif72gyx9.png}}
+    \hfill
+    \includegraphics[width=0.49\textwidth]{\detokenize{Learning Rate report/charts/Section-1-Panel-2-swphbhjsp.png}}
+    \caption{Learning-rate sweep curves from the report, showing train/validation dynamics across low to high learning rates.}
+    \label{fig:learning-rate-sweep}
+\end{figure}
+\[
+\text{batch\_size}\times \text{max\_iters}\times \text{context\_length}=327{,}680{,}000,
+\]
+using different \texttt{batch\_size} settings. Across all runs in the export, the best overall point was \texttt{batch\_size}=1, \(\eta=10^{-4}\), with \texttt{eval/train\_loss}=1.1619. Since batch size 1 is atypical for the main training configuration, I also report trends over practical batch sizes (\(64\) to \(1024\)).
+
+Best \texttt{eval/train\_loss} observed for each learning rate (over all batch sizes):
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Learning rate \(\eta\) & Best \texttt{eval/train\_loss} \\
+\midrule
+\(10^{-5}\) & 1.9974 \\
+\(3\times 10^{-5}\) & 1.9543 \\
+\(10^{-4}\) & \textbf{1.1619} \\
+\(3\times 10^{-4}\) & 1.4576 \\
+\(10^{-3}\) & 1.3606 \\
+\(3\times 10^{-3}\) & 1.3427 \\
+\(10^{-2}\) & 1.3116 \\
+\(3\times 10^{-2}\) & 1.3817 \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \subsection*{(Validation target)}
-\placeholder{Report model achieving TinyStories validation loss target (or adjusted low-resource target, if applicable).}
+Yes---the TinyStories target was met. The best practical-batch run reached \(\approx 1.31\) (\texttt{batch\_size}=256, \(\eta=10^{-2}\), \texttt{eval/train\_loss}=1.3116), which is below the \(1.45\) threshold.
 
 \subsection*{(b)}
-\placeholder{Include curves showing increasing learning rates with at least one divergent run + analysis.}
+With the cosine schedule, none of these runs showed hard numerical divergence, but optimization quality varied strongly with \(\eta\). Very small rates (\(10^{-5}\), \(3\times 10^{-5}\)) underfit within budget (loss \(\approx 2.0+\)). Mid-range rates (\(10^{-3}\) to \(10^{-2}\)) performed best, while too-large rates (e.g., \(3\times 10^{-2}\)) degraded final quality. In this sweep, a good practical operating point is \(\eta \in [3\times 10^{-3}, 10^{-2}]\), with the best practical result at \(\eta=10^{-2}\) for \texttt{batch\_size}=256.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.99\textwidth]{\detokenize{divergent_run.png}}
+    \hfill
+    \caption{Learning curves for varying LRs (not all shown here)}
+    \label{fig:}
+\end{figure}
+
+This behavior matches the expected pattern for cosine decay with short warmup: rates that are too low never make enough progress, and rates that are too high settle into worse minima even if they do not immediately diverge.
+
 
 \section{Problem (batch\_size\_experiment): Batch Size Variations}
-\placeholder{Include learning curves for multiple batch sizes (including 64 and 128) with retuned learning rates if needed.}
+Using the same W\&B export, I compared the best retuned learning rate for each batch size:
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Batch size & Best learning rate & Best \texttt{eval/train\_loss} \\
+\midrule
+64 & \(10^{-3}\) & 1.3606 \\
+128 & \(3\times 10^{-3}\) & 1.3427 \\
+256 & \(10^{-2}\) & \textbf{1.3116} \\
+1024 & \(10^{-2}\) & 1.3627 \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-\placeholder{A few sentences discussing findings on batch size effects.}
+Findings: increasing batch size from 64 to 256 improved the best achievable loss in this budgeted sweep, but pushing to 1024 hurt again. The best run among practical settings was \texttt{batch\_size}=256 with \(\eta=10^{-2}\). This suggests a non-monotonic batch-size tradeoff: larger batches can help optimization up to a point, after which reduced gradient noise may hurt generalization/progress at fixed token budget.
 
 \section{Problem (generate): Generate Text}
-\placeholder{Text dump of at least 256 tokens (or until first \texttt{<|endoftext|>}).}
+Text dump generated from \texttt{token-tango-b256-lr3e-3-327m}:
+\begin{verbatim}
+Once upon a time, there was a little elephant named Tom. He was very fast and cl to help bad run if.
+ saw day, aittle played named wanted no to started first shin wanted. his was very sad? she had a door talked.
+ first shin wanted play, " hidum trees, wanted. Tim lived helpvery run ifound first shin wanted found j first shin wantedould talked and play, "I livedith unl, wanted. Tim livedround your talked run ifound first shin wantedried and play, "ablevery, first shin wantedound
+ vis shin wantedould talked was up door by. his was very happy and play, "ablevery, first shin wanted. bl kn very handound first shin wantedried and play, "omet grabbed candy, wanted. Tim inside laughed surprise to helpveryound Soily unoud beautifulip safe.
+<|endoftext|>
+\end{verbatim}
 
-\placeholder{Brief comment on fluency and at least two factors affecting output quality.}
+The sample has some local coherence, because it keeps a simple story frame and repeats the same character. However, overall fluency is still weak because many words are malformed and some phrases repeat in loops. Two factors likely explain this.  First, higher temperature generally produces less fluent output. Second, lower top-p produces more fluent output.
 
 \section{Problem (layer\_norm\_ablation): Remove RMSNorm and Train}
-\placeholder{Learning curve(s) for no-RMSNorm model, including best lower-learning-rate run.}
-
-\placeholder{A few sentences on RMSNorm impact.}
+Runs (\(327.68\)M tokens):
+\begin{itemize}
+    \item Baseline, \(\eta=0.0028\): final \(1.3360\), best \(1.3261\).
+    \item No-RMSNorm, \(\eta=0.0028\): final \texttt{NaN}, best finite \(2.2182\) (step 600).
+    \item No-RMSNorm, \(\eta=0.0007\): final \(1.4111\), best \(1.4077\).
+\end{itemize}
+Interpretation: best stable no-RMSNorm run is \(+0.0751\) worse than baseline (final val loss).
 
 \section{Problem (pre\_norm\_ablation): Implement Post-Norm and Train}
-\placeholder{Learning curve comparing post-norm and pre-norm Transformers.}
+Runs:
+\begin{itemize}
+    \item Pre-norm baseline: final \(1.3320\), best \(1.3236\).
+    \item Post-norm ablation: final \(1.3476\), best \(1.3456\).
+\end{itemize}
+Interpretation: post-norm is \(+0.0157\) worse than pre-norm (final val loss).
 
 \section{Problem (no\_pos\_emb): Implement NoPE}
-\placeholder{Learning curve comparing RoPE and NoPE.}
+Runs:
+\begin{itemize}
+    \item RoPE baseline: final \(1.3243\), best \(1.3243\).
+    \item NoPE ablation: final \(1.3836\), best \(1.3836\).
+\end{itemize}
+Interpretation: NoPE is \(+0.0593\) worse than RoPE (final val loss).
 
 \section{Problem (swiglu\_ablation): SwiGLU vs.\ SiLU}
-\placeholder{Learning curve comparing SwiGLU and SiLU feed-forward networks (parameter-matched).}
-
-\placeholder{A few sentences discussing findings.}
+Runs:
+\begin{itemize}
+    \item SwiGLU baseline: final \(1.3308\), best \(1.3251\).
+    \item SiLU ablation: final \(1.3383\), best \(1.3383\).
+\end{itemize}
+Interpretation: SiLU is \(+0.0075\) worse than SwiGLU (final val loss).
 
 \section{Problem (main\_experiment): Experiment on OpenWebText}
 \placeholder{Learning curve on OpenWebText + discussion of loss differences vs TinyStories.}

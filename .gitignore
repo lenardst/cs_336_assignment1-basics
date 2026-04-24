@@ -167,3 +167,4 @@ data/
 checkpoints/
 data/*.txt
 data/*.pkl
+.env

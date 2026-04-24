@@ -1,0 +1,39 @@
+program: train.py
+method: bayes
+metric:
+  goal: minimize
+  name: eval/val_loss
+
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 1.0e-4
+    max: 2.0e-3
+  batch_size:
+    value: 64
+  max_iters:
+    value: 20000
+  context_length:
+    value: 256
+  dtype:
+    value: float32
+  compile:
+    value: default
+  eval_interval:
+    value: 2000
+  eval_batches:
+    value: 2
+  train_log_interval:
+    value: 500
+  checkpoint_interval:
+    value: 10000
+  warmup_iters:
+    value: 200
+  beta1:
+    value: 0.9
+  beta2:
+    value: 0.95
+  epsilon:
+    value: 1e-8
+  weight_decay:
+    value: 0.1

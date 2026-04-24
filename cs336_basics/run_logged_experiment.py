@@ -27,12 +27,15 @@ app = modal.App(APP_NAME)
     },
     secrets=[modal.Secret.from_name(WANDB_SECRET_NAME)],
     timeout=24 * 60 * 60,
-    gpu="A10G",
+    gpu="B200",
 )
 def run_logged_experiment(config: dict[str, Any] | None = None) -> str:
     os.chdir(lm.REMOTE_WORKDIR)
     overrides = dict(config or {})
     overrides["enable_wandb"] = True
+    if "model_variant" not in overrides:
+        experiment = str(overrides.get("experiment", "baseline"))
+        overrides["model_variant"] = lm.EXPERIMENT_TO_MODEL_VARIANT.get(experiment, "baseline")
     args = lm._namespace_from_config(overrides, remote=True)
     lm.train(args)
     lm.output_volume.commit()

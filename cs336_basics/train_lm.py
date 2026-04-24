@@ -1,6 +1,5 @@
 import argparse
 import importlib
-import inspect
 import json
 import os
 import time
@@ -12,9 +11,18 @@ import numpy as np
 import torch
 
 transformer_module = importlib.import_module("cs336_basics.3_transformer_lm")
+ablation_module = importlib.import_module("cs336_basics.7_ablations")
 training_module = importlib.import_module("cs336_basics.4_training")
 
 TransformerLM = getattr(transformer_module, "TransformerLM")
+layer_norm_ablation_transformer_model = getattr(
+    ablation_module, "layer_norm_ablation_transformer_model"
+)
+pre_norm_ablation_transformer_model = getattr(
+    ablation_module, "pre_norm_ablation_transformer_model"
+)
+no_pos_emb_transformer_model = getattr(ablation_module, "no_pos_emb_transformer_model")
+swiglu_ablation_transformer_model = getattr(ablation_module, "swiglu_ablation_transformer_model")
 cross_entropy = getattr(training_module, "cross_entropy")
 get_batch = getattr(training_module, "get_batch")
 AdamW = getattr(training_module, "AdamW")
@@ -23,8 +31,25 @@ gradient_clipping = getattr(training_module, "gradient_clipping")
 save_checkpoint = getattr(training_module, "save_checkpoint")
 load_checkpoint = getattr(training_module, "load_checkpoint")
 
+MODEL_CLASS_BY_VARIANT = {
+    "baseline": TransformerLM,
+    "layer_norm_ablation": layer_norm_ablation_transformer_model,
+    "pre_norm_ablation": pre_norm_ablation_transformer_model,
+    "no_pos_emb": no_pos_emb_transformer_model,
+    "swiglu_ablation": swiglu_ablation_transformer_model,
+}
+
+EXPERIMENT_TO_MODEL_VARIANT = {
+    "baseline": "baseline",
+    "layer_norm_ablation": "layer_norm_ablation",
+    "pre_norm_ablation": "pre_norm_ablation",
+    "no_pos_emb": "no_pos_emb",
+    "swiglu_ablation": "swiglu_ablation",
+}
+
 DEFAULT_DEVICE = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 DEFAULT_MODAL_DEVICE = "cuda"
+DEFAULT_MAX_ITERS = 40_000 if DEFAULT_DEVICE == "cuda" else 5_000
 
 # Assignment baseline defaults.
 DEFAULTS = {
@@ -35,11 +60,11 @@ DEFAULTS = {
     "num_heads": 16,
     "d_ff": 1_344,
     "rope_theta": 10_000.0,
-    "batch_size": 32,
-    "max_iters": 40_000 if DEFAULT_DEVICE == "cuda" else 5_000,
+    "batch_size": 64,
+    "max_iters": DEFAULT_MAX_ITERS,
     "learning_rate": 3e-4,
     "min_lr": 3e-5,
-    "warmup_iters": 200,
+    "warmup_iters": max(1, DEFAULT_MAX_ITERS // 10),
     "beta1": 0.9,
     "beta2": 0.95,
     "epsilon": 1e-8,
@@ -73,6 +98,7 @@ tokenizer_output_volume = modal.Volume.from_name(TOKENIZER_OUTPUT_VOLUME_NAME, c
 
 TRAIN_CONFIG_DEFAULTS: dict[str, Any] = {
     "experiment": "baseline",
+    "model_variant": "baseline",
     "run_name": "",
     "train_path": f"{REMOTE_TOKENIZER_OUTPUT_DIR}/tiny_train_uint16.npy",
     "val_path": f"{REMOTE_TOKENIZER_OUTPUT_DIR}/tiny_valid_uint16.npy",
@@ -107,16 +133,21 @@ TRAIN_CONFIG_DEFAULTS: dict[str, Any] = {
     "wandb_mode": "online",
     "resume": False,
     "compile": "off",
-    "norm_style": "pre",
-    "pos_emb": "rope",
-    "ffn_style": "swiglu",
 }
 
 
 def _resolve_train_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     config = dict(TRAIN_CONFIG_DEFAULTS)
-    if overrides:
-        config.update(overrides)
+    resolved_overrides = overrides or {}
+    if resolved_overrides:
+        config.update(resolved_overrides)
+    if "model_variant" not in resolved_overrides:
+        config["model_variant"] = EXPERIMENT_TO_MODEL_VARIANT.get(
+            str(config.get("experiment", "baseline")),
+            "baseline",
+        )
+    if "warmup_iters" not in resolved_overrides:
+        config["warmup_iters"] = max(1, int(config["max_iters"]) // 10)
     if not config["run_name"]:
         config["run_name"] = f"run_{int(time.time())}"
     return config
@@ -134,33 +165,6 @@ def load_train_val_arrays(train_path: Path, val_path: Path) -> tuple[np.ndarray 
     return load_token_array(train_path), load_token_array(val_path)
 
 
-def _ablation_overrides(args: argparse.Namespace) -> dict[str, object]:
-    norm_style = args.norm_style
-    pos_emb = args.pos_emb
-    ffn_style = args.ffn_style
-
-    if args.experiment == "layer_norm_ablation":
-        norm_style = "none"
-    elif args.experiment == "pre_norm_ablation":
-        norm_style = "post"
-    elif args.experiment == "no_pos_emb":
-        pos_emb = "nope"
-    elif args.experiment == "swiglu_ablation":
-        ffn_style = "silu"
-
-    requested: dict[str, object] = {}
-    if norm_style == "none":
-        requested["use_rmsnorm"] = False
-    elif norm_style == "post":
-        requested["norm_style"] = "post"
-
-    if pos_emb == "nope":
-        requested["use_rope"] = False
-    if ffn_style == "silu":
-        requested["ffn_style"] = "silu"
-    return requested
-
-
 def _build_model(args: argparse.Namespace) -> torch.nn.Module:
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float32
     model_kwargs: dict[str, object] = {
@@ -175,16 +179,15 @@ def _build_model(args: argparse.Namespace) -> torch.nn.Module:
         "dtype": dtype,
     }
 
-    supported = set(inspect.signature(TransformerLM.__init__).parameters)
-    supported.discard("self")
-    for key, value in _ablation_overrides(args).items():
-        if key not in supported:
-            raise ValueError(
-                f"Experiment needs TransformerLM.__init__ argument '{key}', but it is not implemented yet."
-            )
-        model_kwargs[key] = value
+    model_variant = str(getattr(args, "model_variant", "baseline")).lower()
+    model_cls = MODEL_CLASS_BY_VARIANT.get(model_variant)
+    if model_cls is None:
+        raise ValueError(
+            f"Unknown model_variant '{model_variant}'. "
+            f"Expected one of {sorted(MODEL_CLASS_BY_VARIANT)}"
+        )
 
-    model = TransformerLM(**model_kwargs)
+    model = model_cls(**model_kwargs)
     if args.compile == "default":
         model = torch.compile(model)
     elif args.compile == "aot_eager":
@@ -254,8 +257,13 @@ def _namespace_from_config(config: dict[str, Any], remote: bool) -> argparse.Nam
 def train(args: argparse.Namespace) -> None:
     print(
         f"[startup] run={args.run_name} experiment={args.experiment} "
-        f"device={args.device} dtype={args.dtype} max_iters={args.max_iters}"
+        f"model_variant={args.model_variant} device={args.device} "
+        f"dtype={args.dtype} max_iters={args.max_iters}"
     )
+    if args.device.startswith("cuda") and args.dtype == "float32":
+        # Enable TF32 tensor cores for faster float32 matmuls on supported NVIDIA GPUs.
+        torch.set_float32_matmul_precision("high")
+        print("[startup] enabled torch float32 matmul precision = high (TF32)")
     print(f"[data] loading train array from {args.train_path}")
     train_data, val_data = load_train_val_arrays(args.train_path, args.val_path)
     print(
@@ -442,7 +450,7 @@ def _normalize_remote_device(device: str) -> str:
         REMOTE_TOKENIZER_OUTPUT_DIR: tokenizer_output_volume,
     },
     timeout=24 * 60 * 60,
-    gpu="A10G",
+    gpu="B200",
 )
 def run_train_lm_remote(config: dict[str, Any] | None = None) -> str:
     os.chdir(REMOTE_WORKDIR)

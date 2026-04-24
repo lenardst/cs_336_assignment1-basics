@@ -48,3 +48,16 @@ gunzip owt_valid.txt.gz
 cd ..
 ```
 
+## Artifact Storage Policy (to avoid local/Modal mismatch)
+
+- Keep tokenizer artifacts (`vocab`/`merges` `.pkl` files) in local `data/` as the single canonical source.
+- Keep encoded token arrays (`*_uint16.npy`) only in the Modal volume `cs336-tokenizer-experiments` at `/tokenizer_experiments_outputs/`.
+- Do not keep local copies of encoded arrays in `data/tokenizer_experiments/`.
+- Before long training runs, verify tokenizer/array compatibility with:
+
+```sh
+modal run cs336_basics/check_modal_tokenizer_match.py --prefix-chars 200000 --compare-tokens 5000
+```
+
+Expected result is a match ratio near `1.0`.
+

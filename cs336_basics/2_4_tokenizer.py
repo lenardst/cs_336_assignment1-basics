@@ -5,6 +5,13 @@ from importlib import import_module
 pre_tokenize = import_module("cs336_basics.2_0_bpe_tokenizer").pre_tokenize
 
 def read_with_sequence_boundary(iterable: Iterable[str], delimiters):
+    delimiters = [d for d in delimiters if d]
+    if not delimiters:
+        for chunk in iterable:
+            if chunk:
+                yield chunk
+        return
+
     remainder = ""
     for chunk in iterable:
         current_data = remainder + chunk
