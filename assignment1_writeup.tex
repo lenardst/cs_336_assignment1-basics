@@ -3,6 +3,8 @@
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{lmodern}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{enumitem}
 \usepackage{graphicx}
@@ -141,7 +143,7 @@ Trainable parameters (no linear biases; \texttt{RMSNorm} has only a scale vector
 = 1{,}640{,}452{,}800
 \]
 
-If each is stored as a single-precision floating point, the model needs 32 bits x 1{,}640{,}452{,}800 = 52,494,489,600 \text{ bits} \approx 6.56 \text{ GB}. 6.56 \text{ GB} are required just to load the model.
+If each is stored as a single-precision floating point, the model needs $32 \times 1{,}640{,}452{,}800 = 52{,}494{,}489{,}600\text{ bits} \approx 6.56\text{ GB}$. 6.56~GB are required just to load the model.
 
 \subsection*{(b)}
 For one \texttt{TransformerBlock}, let \(B=\) batch size, \(T=\) sequence length, \(d=1600\), \(h=25\), \(d_k=d/h=64\), \(d_{\text{ff}}=4288\). The 9 matrix multiplications are:
@@ -338,7 +340,12 @@ I ran a broad, log-scale sweep over learning rates and selected runs using the e
 \eta \in \{10^{-5}, 3\times 10^{-5}, 10^{-4}, 3\times 10^{-4}, 10^{-3}, 3\times 10^{-3}, 10^{-2}, 3\times 10^{-2}\}.
 \]
 To keep compute comparable, I held the token budget fixed at
-\begin{figure}[h]
+\[
+\text{batch\_size}\times \text{max\_iters}\times \text{context\_length}=327{,}680{,}000,
+\]
+using different \texttt{batch\_size} settings.
+
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.49\textwidth]{\detokenize{Learning Rate report/charts/Section-1-Panel-1-sif72gyx9.png}}
     \hfill
@@ -346,10 +353,8 @@ To keep compute comparable, I held the token budget fixed at
     \caption{Learning-rate sweep curves from the report, showing train/validation dynamics across low to high learning rates.}
     \label{fig:learning-rate-sweep}
 \end{figure}
-\[
-\text{batch\_size}\times \text{max\_iters}\times \text{context\_length}=327{,}680{,}000,
-\]
-using different \texttt{batch\_size} settings. Across all runs in the export, the lowest training-side metric was \texttt{batch\_size}=1, \(\eta=10^{-4}\), with \texttt{train\_loss}=1.1619; however, the true validation result for that run was worse (\texttt{val\_loss}=1.6665), so it is not the best model by validation quality. I therefore report trends over practical batch sizes (\(64\) to \(1024\)).
+
+Across all runs in the export, the lowest training-side metric was \texttt{batch\_size}=1, \(\eta=10^{-4}\), with \texttt{train\_loss}=1.1619; however, the true validation result for that run was worse (\texttt{val\_loss}=1.6665), so it is not the best model by validation quality. I therefore report trends over practical batch sizes (\(64\) to \(1024\)).
 
 Best \texttt{eval/train\_loss} observed for each learning rate (over all batch sizes):
 \begin{center}
@@ -375,12 +380,11 @@ Yes---the TinyStories target was met. Using validation quality (and excluding th
 \subsection*{(b)}
 With the cosine schedule, none of these runs showed hard numerical divergence, but optimization quality varied strongly with \(\eta\). Very small rates (\(10^{-5}\), \(3\times 10^{-5}\)) underfit within budget (loss \(\approx 2.0+\)). Mid-range rates (\(10^{-3}\) to \(10^{-2}\)) performed best, while too-large rates (e.g., \(3\times 10^{-2}\)) degraded final quality. In this sweep, a good practical operating point is \(\eta \in [3\times 10^{-3}, 10^{-2}]\), with the best practical result at \(\eta=10^{-2}\) for \texttt{batch\_size}=256.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.99\textwidth]{\detokenize{divergent_run.png}}
-    \hfill
     \caption{Learning curves for varying LRs (not all shown here)}
-    \label{fig:}
+    \label{fig:lr-divergence}
 \end{figure}
 
 This behavior matches the expected pattern for cosine decay with short warmup: rates that are too low never make enough progress, and rates that are too high settle into worse minima even if they do not immediately diverge.
@@ -388,7 +392,7 @@ This behavior matches the expected pattern for cosine decay with short warmup: r
 
 \section{Problem (batch\_size\_experiment): Batch Size Variations}
 Using the same W\&B export, I compared the best retuned learning rate for each batch size:
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.49\textwidth]{\detokenize{figures/batch_size/learning_curves_incl_b1.png}}
     \hfill
@@ -431,7 +435,7 @@ Runs (\(327.68\)M tokens):
     \item No-RMSNorm, \(\eta=0.0028\): final \texttt{NaN}, best finite \(2.2182\) (step 600).
     \item No-RMSNorm, \(\eta=0.0007\): final \(1.4111\), best \(1.4077\).
 \end{itemize}
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/layernorm.png}}
     \caption{Q7 layer-norm ablation learning curves (\texttt{eval/val\_loss}): baseline RMSNorm vs.\ no-RMSNorm runs.}
@@ -445,7 +449,7 @@ Runs:
     \item Pre-norm baseline: final \(1.3320\), best \(1.3236\).
     \item Post-norm ablation: final \(1.3476\), best \(1.3456\).
 \end{itemize}
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/prenorm.png}}
     \caption{Q7 pre-norm vs.\ post-norm learning curves (\texttt{eval/val\_loss}).}
@@ -459,7 +463,7 @@ Runs:
     \item RoPE baseline: final \(1.3243\), best \(1.3243\).
     \item NoPE ablation: final \(1.3836\), best \(1.3836\).
 \end{itemize}
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/nopos.png}}
     \caption{Q7 positional-encoding ablation learning curves (\texttt{eval/val\_loss}): RoPE baseline vs.\ NoPE.}
@@ -473,7 +477,7 @@ Runs:
     \item SwiGLU baseline: final \(1.3308\), best \(1.3251\).
     \item SiLU ablation: final \(1.3383\), best \(1.3383\).
 \end{itemize}
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.9\textwidth]{\detokenize{figures/q7/swiglu.png}}
     \caption{Q7 feed-forward activation comparison (\texttt{eval/val\_loss}): SwiGLU baseline vs.\ SiLU.}
