@@ -25,65 +25,7 @@
 
 \section{Problem (unicode1): Understanding Unicode}
 \subsection*{(a)}
-Let \(B=\text{batch\_size}\), \(V=\text{vocab\_size}\), \(T=\text{context\_length}\), \(L=\text{num\_layers}\), \(d=d_{\text{model}}\), \(h=\text{num\_heads}\), \(d_{\text{ff}}=\frac{8}{3}d\). Float32 uses 4 bytes/element.
-
-\[
-P = 2Vd + L\!\left(4d^2 + 3dd_{\text{ff}} + 2d\right) + d
-:= 2Vd + L(12d^2 + 2d) + d .
-\]
-
-\[
-M_{\text{params}} = 4P \text{ bytes}.
-\]
-
-\[
-\begin{aligned}
-A_{\text{block}} &= \underbrace{2BTd}_{\text{2 RMSNorms}}
-+ \underbrace{(3BTd + BhT^2 + BhT^2 + BTd + BTd)}_{\text{QKV, }QK^\top,\text{ softmax, weighted sum, }W_O}
-+ \underbrace{(BTd_{\text{ff}} + BTd_{\text{ff}} + BTd_{\text{ff}} + BTd_{\text{ff}} + BTd)}_{\text{W1, W3, SiLU, product, W2}} \\
-&= 8BTd + 4BTd_{\text{ff}} + 2BhT^2
-:= \frac{56}{3}BTd + 2BhT^2 .
-\end{aligned}
-\]
-
-\[
-A_{\text{extra}} = BTd + 2BTV.
-\]
-
-\[
-A = L A_{\text{block}} + A_{\text{extra}}
-:= L\!\left(\frac{56}{3}BTd + 2BhT^2\right) + BTd + 2BTV .
-\]
-
-\[
-M_{\text{act}} = 4A \text{ bytes}.
-\]
-
-\[
-M_{\text{grad}} = 4P \text{ bytes}.
-\]
-
-\[
-M_{\text{opt}} = 8P \text{ bytes}.
-\]
-
-\[
-M_{\text{peak}} = M_{\text{params}} + M_{\text{act}} + M_{\text{grad}} + M_{\text{opt}}
-:= 16P + 4A \text{ bytes}.
-\]
-\[
-\boxed{
-M_{\text{peak}}
-= 32\,\text{vocab\_size}\,d_{\text{model}}
-+ 192\,\text{num\_layers}\,d_{\text{model}}^2
-+ 32\,\text{num\_layers}\,d_{\text{model}}
-+ 16\,d_{\text{model}}
-+ \frac{224}{3}\,\text{num\_layers}\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
-+ 8\,\text{num\_layers}\,\text{batch\_size}\,\text{num\_heads}\,\text{context\_length}^2
-+ 4\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
-+ 8\,\text{batch\_size}\,\text{context\_length}\,\text{vocab\_size}
-\;\text{bytes}.}
-\]
+\texttt{chr(0)} returns the null character (Unicode code point U+0000), an invisible control character with no visible glyph.
 
 \subsection*{(b)}
 Its string representation shows an escape sequence like \texttt{'\textbackslash x00'}, while printing it produces a non-printing control character (typically visually empty output).
@@ -103,7 +45,7 @@ An example invalid two-byte sequence is \texttt{b'\textbackslash xc0\textbacksla
 
 \section{Problem (train\_bpe\_tinystories): BPE Training on TinyStories}
 \subsection*{(a)}
-Using \texttt{input\_path=data/TinyStoriesV2-GPT4-train.txt}, \texttt{max\_vocab\_size=10000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 1017.59 seconds and produced a 10,000-token vocabulary whose longest token was 15 bytes: \texttt{' accomplishment'}. This longest token is reasonable because frequent whitespace-prefixed word fragments are exactly the kind of units BPE tends to merge.
+Using \texttt{input\_path=data/TinyStoriesV2-GPT4-train.txt}, \texttt{max\_vocab\_size=10000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 137.01 seconds with a peak RAM usage of 175.2\,MB. The resulting 10,000-token vocabulary had a longest token of 15 bytes: \texttt{' accomplishment'}. This longest token is reasonable because frequent whitespace-prefixed word fragments are exactly the kind of units BPE tends to merge.
 
 \subsection*{(b)}
 In my profile, most runtime is in the BPE merge loop: \texttt{update\_word\_pairs} (32.38\%) and \texttt{merge\_tokens\_words\_element} (32.16\%) together account for about two-thirds of sampled execution time. Smaller portions are loop overhead and preprocessing/counting, and because subprocess profiling was not enabled, worker-process pretokenization time may be underrepresented.
@@ -113,7 +55,7 @@ In my profile, most runtime is in the BPE merge loop: \texttt{update\_word\_pair
 Using \texttt{input\_path=data/owt\_valid.txt}, \texttt{max\_vocab\_size=32000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 1943.20 seconds and produced a 32,000-token vocabulary whose longest token was 64 bytes: \texttt{'----------------------------------------------------------------'}. This token is plausible because long repeated punctuation spans occur in web text and are highly mergeable under BPE.
 
 \subsection*{(b)}
-\placeholder{One-to-two sentence compare/contrast with TinyStories tokenizer.}
+The OpenWebText tokenizer (32k vocab) produces noticeably different merge patterns from the TinyStories tokenizer (10k vocab): it learns longer, more varied tokens reflecting web-text diversity—such as long punctuation runs, URL fragments, and technical vocabulary—whereas the TinyStories tokenizer is dominated by common narrative words and whitespace-prefixed word fragments typical of simple children's stories. Consequently, the OWT tokenizer achieves better compression on web text while the TinyStories tokenizer is better tuned to the narrow vocabulary of the stories domain.
 
 \section{Problem (tokenizer\_experiments): Experiments with Tokenizers}
 \subsection*{(a)}
@@ -228,7 +170,7 @@ As model size increases, FFN and projection-heavy terms take a larger share of t
 For GPT-2 XL, increasing context length from \(1024\) to \(16{,}384\) raises one-forward-pass matmul FLOPs from \(3{,}516{,}769{,}894{,}400\) to \(133{,}577{,}729{,}638{,}400\), i.e. \(\approx 37.98\times\) higher. The relative FLOP share shifts strongly toward the \(T^2\) attention terms: attention scores + attention-value rise from \(9.16\%\) to \(61.73\%\), while FFN (\(W_1/W_3/W_2\)) falls from \(57.51\%\) to \(24.24\%\) and final projection falls from \(4.68\%\) to \(1.97\%\).
 
 \section{Problem (learning\_rate\_tuning): Tuning the Learning Rate (SGD toy example)}
-With 1e1 it decreases over time. With 1e2 it decreases faster. With 1e3 it diverges.
+At \(\eta=10^1\) the loss decreases steadily but slowly over the 10 iterations, reaching a noticeably lower value than at initialization; at \(\eta=10^2\) the loss decreases faster and reaches a lower final value, indicating a more aggressive but still stable step. At \(\eta=10^3\) the loss diverges—it increases over the course of training rather than decreasing—showing that this learning rate is far too large for the quadratic toy loss landscape.
 
 \section{Problem (adamw\_accounting): Resource Accounting for Training with AdamW}
 \subsection*{(a)}
@@ -363,8 +305,7 @@ Learning rate \(\eta\) & Best \texttt{val\_loss} & Final \texttt{val\_loss} \\
 \end{tabular}
 \end{center}
 
-\subsection*{(Validation target)}
-Yes---the TinyStories target was met. The best run in this sweep reached \(\texttt{val\_loss}=1.3107\) at \(\eta=10^{-2}\), which is below the \(1.45\) threshold.
+The TinyStories target (\(\texttt{val\_loss}<1.45\)) was met: the best run reached \(\texttt{val\_loss}=1.3107\) at \(\eta=10^{-2}\).
 
 \subsection*{(b)}
 None of these runs showed hard numerical divergence (no NaNs/Infs and all runs reached step 10{,}000), but optimization quality varied strongly with \(\eta\). The \(\eta=1\) curve shows large early instability spikes in validation loss, then recovers to a much worse plateau than the mid-range rates. The best region is \(\eta \in [3\times 10^{-3}, 10^{-2}]\), with the best result at \(\eta=10^{-2}\). Too-small rates (\(10^{-4}, 3\times 10^{-4}\)) underfit within budget, and too-large rates (\(10^{-1}, 1\)) train to clearly worse final loss.
@@ -376,7 +317,7 @@ None of these runs showed hard numerical divergence (no NaNs/Infs and all runs r
     \label{fig:lr-divergence}
 \end{figure}
 
-The best rate (.01) is apprximately 1/10 of the rate where instability starts (.1).
+The best rate (\(10^{-2}\)) is approximately \(1/10\) of the rate where instability starts (\(10^{-1}\)).
 
 
 \section{Problem (batch\_size\_experiment): Batch Size Variations}
@@ -425,7 +366,7 @@ The next day, Lilly and her mom went to the closet and found the kitten. Lilly w
 \texttt{<|endoftext|>}
 \end{quote}
 
-First, I had to increase the vocab size to achive fluency. With 10k vocab, the model produced words that do not exist and the result was influent. With vacab size 32k, the model produces gramatically correct stories. Second, decoding hyperparameters (temperature and top-$p$) had to be configured (low temp and top-p) to obtain a fluent and somewhat coherent output.
+First, I had to increase the vocab size to achieve fluency. With 10k vocab, the model produced non-existent words and the result was not fluent. With vocab size 32k, the model produces grammatically correct stories. Second, decoding hyperparameters (temperature and top-$p$) had to be configured (low temperature and top-$p$) to obtain a fluent and somewhat coherent output.
 
 \section{Problem (layer\_norm\_ablation): Remove RMSNorm and Train}
 Runs (\(327.68\)M tokens):
@@ -520,10 +461,24 @@ Final validation loss (OpenWebText leaderboard run): \(\texttt{val\_loss}=3.7435
     \label{fig:leaderboard-wallclock}
 \end{figure}
 
-I added \texttt{cs336\_basics/7\_5\_owt\_batch\_lr\_sweep.py}: a Modal local entrypoint that builds twelve Python dicts (every pair in \texttt{batch\_sizes = [64, 128, 256]} \(\times\) \texttt{LEARNING\_RATES = (1e-3, 3e-3, 1e-2, 3e-2)}), sets \texttt{max\_iters} to \((20000, 10000, 5000)\) respectively for those batch sizes (same token totals as in \texttt{7\_6\_batch\_size\_experiment.py} for those three \(B\)), default \texttt{context\_length = 256}, and for each dict calls \texttt{modal.Function.from\_name("train-lm-logged", "run\_logged\_experiment").spawn(config=...)} so training runs inside the deployed \texttt{run\_logged\_experiment} image.
-Each dict passes overrides consumed by \texttt{train\_lm.\_namespace\_from\_config}: \texttt{experiment = "owt\_batch\_lr\_sweep"}, \texttt{model\_variant = "baseline"}, \texttt{vocab\_size = 32000}, the chosen \texttt{learning\_rate}, \texttt{batch\_size}, \texttt{max\_iters}, \texttt{context\_length}, \texttt{train\_path} and \texttt{val\_path} as the absolute paths \texttt{/tokenizer\_experiments\_outputs/owt\_train\_uint16.npy} and \texttt{/tokenizer\_experiments\_outputs/owt\_valid\_uint16.npy} (prefix \texttt{train\_lm.REMOTE\_TOKENIZER\_OUTPUT\_DIR} on the Modal tokenizer volume \texttt{cs336-tokenizer-experiments}, not files baked from local \texttt{data/}), \texttt{eval\_interval = max\_iters}, \texttt{eval\_batches = 3}, \texttt{checkpoint\_interval = max\_iters * 1000}, plus \texttt{run\_name}, \texttt{checkpoint\_path}, and \texttt{log\_path} under the output volume.
-\texttt{run\_logged\_experiment} forces \texttt{enable\_wandb = True} before calling \texttt{train\_lm.train}; run names look like \texttt{q7\_owt\_bs\{B\}\_lr\{tag\}\_it\{max\_iters\}\_\{unix\_stamp\}}.
+I swept \texttt{batch\_size} \(\in \{64, 128, 256\}\) against \(\eta \in \{10^{-3}, 3\times10^{-3}, 10^{-2}, 3\times10^{-2}\}\) at \texttt{vocab\_size}=32000 and \texttt{context\_length}=256, with \texttt{max\_iters} \(\in\{38200,19100,9550\}\) paired to those batch sizes so \(B\cdot\texttt{max\_iters}\) (hence token exposure) is constant across the grid while keeping each job under a \(\sim\)45-minute wall-clock cap (sweep driver: \texttt{cs336\_basics/7\_5\_owt\_batch\_lr\_sweep.py}, Modal \texttt{run\_logged\_experiment}, W\&B \texttt{experiment}=\texttt{owt\_batch\_lr\_sweep}).
+Across all twelve runs, the lowest validation loss was achieved at \(\eta = 10^{-2}\) for every batch size; the overall best logged configuration was \texttt{batch\_size}=128, \(\eta = 10^{-2}\), \texttt{max\_iters}=19100 (\texttt{run\_name}=\texttt{q7\_owt\_bs128\_lr0p01\_it19100\_1777310727}), i.e.\ the same assignment baseline transformer (\texttt{d\_model}=512, \texttt{num\_layers}=4, \texttt{num\_heads}=16, \texttt{d\_ff}=1344, \texttt{rope\_theta}=10{,}000, AdamW \(\beta_1{=}0.9\), \(\beta_2{=}0.95\), \texttt{weight\_decay}=0.1, \texttt{max\_grad\_norm}=1, \texttt{dtype}=\texttt{float32}) with \texttt{warmup\_iters}=1910 (one tenth of \texttt{max\_iters}), cosine decay to \texttt{min\_learning\_rate}= \(3\times 10^{-5}\), sparse validation (\texttt{eval\_interval}=\texttt{max\_iters}, \texttt{eval\_batches}=3), and rare checkpointing (\texttt{checkpoint\_interval}= \(19100\times 10^{3}\)).
+That run finished in about 41 minutes wall time. Figure~\ref{fig:owt-sweep-best-val-wall} shows \texttt{eval/val\_loss} vs.\ minutes: loss falls from \(\approx 10.4\) to \(\approx 3.7\) with an almost linear downward trend on the wall-clock axis. Figure~\ref{fig:owt-sweep-best-train-wall} shows \texttt{train/loss}: a fast initial drop (roughly \(6.8 \rightarrow 4.7\) in the first few minutes), then a slower noisy descent toward \(\approx 3.8\) at the end---consistent with optimization noise on mini-batches and still modestly decreasing, so additional steps would likely help if compute allowed.
 
-What I changed for the leaderboard run itself: I experimented with the warmup schedule and tested a longer warmup phase, which improved optimization stability and fit when training with a high learning rate.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{\detokenize{figures/leaderboard/owt_sweep_best_eval_val_loss_wallclock.png}}
+    \caption{Best sweep run (\texttt{bs}=128, \(\eta{=}10^{-2}\), \texttt{max\_iters}=19100): \texttt{eval/val\_loss} vs.\ wall time (minutes).}
+    \label{fig:owt-sweep-best-val-wall}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{\detokenize{figures/leaderboard/owt_sweep_best_train_loss_wallclock.png}}
+    \caption{Same run: \texttt{train/loss} vs.\ wall time (minutes).}
+    \label{fig:owt-sweep-best-train-wall}
+\end{figure}
+
+For the separate leaderboard submission (Figure~\ref{fig:leaderboard-wallclock}), I lengthened the warmup schedule, which improved optimization stability at the higher learning rates.
 
 \end{document}

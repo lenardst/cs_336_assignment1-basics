@@ -9,7 +9,10 @@ app = modal.App("q7-owt-batch-lr-sweep")
 
 TRAIN = f"{lm.REMOTE_TOKENIZER_OUTPUT_DIR}/owt_train_uint16.npy"
 VAL = f"{lm.REMOTE_TOKENIZER_OUTPUT_DIR}/owt_valid_uint16.npy"
-_ITERS = {64: 20_000, 128: 10_000, 256: 5_000}
+# Previous grid used (20k, 10k, 5k) steps (~21–23m/run). Doubling to (40k, 20k, 10k) would
+# scale wall time ~linearly (~46–47m for bs=64), over a 45m cap. Keep B*max_iters constant
+# across batch sizes and use ~1.91x steps so the slowest job stays under ~45m.
+_ITERS = {64: 38_200, 128: 19_100, 256: 9_550}
 LRS = (1e-3, 3e-3, 1e-2, 3e-2)
 
 

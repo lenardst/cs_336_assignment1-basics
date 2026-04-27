@@ -1,6 +1,7 @@
 import argparse
 import os
 import pickle
+import resource
 import time
 from importlib import import_module
 from pathlib import Path
@@ -62,10 +63,12 @@ def train_tinystories_remote(n: int) -> str:
         progress_callback=cb,
     )
     el = time.perf_counter() - t0
+    peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     longest = max(vocab.values(), key=len).decode("utf-8", errors="replace")
     log = (
         f"input_path={INPUT}\nmax_vocab_size={n}\nspecial_tokens={ST}\n"
-        f"vocab_size={len(vocab)}\ntraining_time_seconds={el:.2f}\nlongest_token={longest!r}\n"
+        f"vocab_size={len(vocab)}\ntraining_time_seconds={el:.2f}\n"
+        f"peak_memory_mb={peak_kb/1024:.1f}\nlongest_token={longest!r}\n"
     )
     for fn, data, binary in ((vn, vocab, True), (mn, merges, True), (ln, log, False)):
         p = Path(ROUT) / fn
@@ -81,7 +84,7 @@ def train_tinystories_remote(n: int) -> str:
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--vocab-size", type=int, default=10_000)
-    n = p.parse_args().vocab_size
+    n = p.parse_known_args()[0].vocab_size
     log = train_tinystories_remote.remote(n)
     vn, mn, ln, _ = names(n)
     DATA.mkdir(parents=True, exist_ok=True)
