@@ -38,31 +38,31 @@ When this character appears in text it is embedded as an invisible null byte tha
 UTF-8 is usually preferred. It is much more space-efficient for ASCII-heavy text (common on the web). It is byte-oriented and backward-compatible with ASCII. It also avoids UTF-16 endianness and BOM complications while still representing all Unicode characters.
 
 \subsection*{(b)}
-An example is \texttt{b'\textbackslash xc3\textbackslash xa9'} (which is ``é'' in UTF-8). The function is incorrect because it decodes each byte independently. UTF-8 is variable-length, and many characters require combining multiple bytes before decoding.
+An example is \texttt{b'\textbackslash xc3\textbackslash xa9'} (which is ``é'' in UTF-8). The function is incorrect because it decodes each byte independently. UTF-8 is variable-length, and many characters require multiple bytes for encoding.
 
 \subsection*{(c)}
-An example invalid two-byte sequence is \texttt{b'\textbackslash xc0\textbackslash xaf'}, which is an overlong UTF-8 encoding and therefore does not decode to any valid Unicode character sequence.
+An example invalid two-byte sequence is \texttt{b'\textbackslash xc0\textbackslash xaf'}, which is an overlong (i.e., it uses more bytes than needed to represent a character) UTF-8 encoding and therefore does not decode to any valid character.
 
 \section{Problem (train\_bpe\_tinystories): BPE Training on TinyStories}
 \subsection*{(a)}
-Using \texttt{input\_path=data/TinyStoriesV2-GPT4-train.txt}, \texttt{max\_vocab\_size=10000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 137.01 seconds with a peak RAM usage of 175.2\,MB. The resulting vocabulary had a longest token of 15 bytes: \texttt{' accomplishment'}. This is reasonable because BPE tends to merge frequent whitespace-prefixed word fragments into single tokens.
+Using \texttt{input\_path=data/TinyStoriesV2-GPT4-train.txt}, \texttt{max\_vocab\_size=10000}, training took 137.01 seconds with a peak RAM usage of 175.2\,MB. The resulting vocabulary had a longest token of 15 bytes: \texttt{' accomplishment'}. This makes sense because BPE tends to merge frequent whitespace-prefixed word fragments into single tokens.
 
 \subsection*{(b)}
-In my profile, most runtime is in the BPE merge loop. \texttt{update\_word\_pairs} (32.38\%) and \texttt{merge\_tokens\_words\_element} (32.16\%) together account for about two-thirds of sampled execution time. Smaller portions come from loop overhead and preprocessing. Worker-process pretokenization time may be underrepresented because subprocess profiling was not enabled.
+In my training process, most of the runtime is in the BPE merge loop. \texttt{update\_word\_pairs} (32.38\%) and \texttt{merge\_tokens\_words\_element} (32.16\%) together account for about two-thirds of sampled execution time. Smaller portions come from loop overhead and preprocessing.
 
 \section{Problem (train\_bpe\_expts\_owt): BPE Training on OpenWebText}
 \subsection*{(a)}
-Using \texttt{input\_path=data/owt\_valid.txt}, \texttt{max\_vocab\_size=32000}, and \texttt{special\_tokens=['<|endoftext|>']}, training took 1943.20 seconds. It produced a 32,000-token vocabulary whose longest token was 64 bytes: \texttt{'----------------------------------------------------------------'}. This token is plausible because long repeated punctuation spans occur in web text and are highly mergeable under BPE.
+Using \texttt{input\_path=data/owt\_valid.txt}, \texttt{max\_vocab\_size=32000}, training took 1943.20 seconds. It produced a 32,000-token vocabulary whose longest token was 64 bytes: \texttt{'----------------------------------------------------------------'}. This token is plausible because long repeated punctuation spans occur in web text and are highly mergeable under BPE.
 
 \subsection*{(b)}
-The OpenWebText tokenizer (32k vocab) produces noticeably different merge patterns from the TinyStories tokenizer (10k vocab). The OWT tokenizer learns longer, more varied tokens reflecting web-text diversity, such as long punctuation runs, URL fragments, and technical vocabulary. The TinyStories tokenizer is dominated by common narrative words and whitespace-prefixed word fragments typical of simple children's stories. As a result, the OWT tokenizer achieves better compression on web text. The TinyStories tokenizer is better tuned to the narrow vocabulary of the stories domain.
+The OpenWebText tokenizer (32k vocab) produces noticeably different merge patterns from the TinyStories tokenizer (10k vocab). The OWT tokenizer learns longer, more varied tokens reflecting web-text diversity, URL fragments, and technical vocabulary. The TinyStories tokenizer is dominated by common narrative words and whitespace-prefixed word fragments typical of simple children's stories. As a result, the OWT tokenizer achieves better compression on web text. The TinyStories tokenizer is better tuned to the narrow vocabulary of the stories domain, but it also includes fewer full words as tokens (and many subparts instead).
 
 \section{Problem (tokenizer\_experiments): Experiments with Tokenizers}
 \subsection*{(a)}
-On 10 sampled TinyStories documents, the TinyStories tokenizer achieved 4.150 bytes/token (7412 bytes over 1786 tokens). On 10 sampled OpenWebText documents, the OpenWebText tokenizer achieved 4.680 bytes/token (31487 bytes over 6728 tokens), indicating better compression on its in-domain sample.
+On 10 sampled TinyStories documents, the TinyStories tokenizer achieved 4.150 bytes/token (7412 bytes over 1786 tokens). On 10 sampled OpenWebText documents, the OpenWebText tokenizer achieved 4.680 bytes/token (31487 bytes over 6728 tokens). The OWT tokenizer, therefore, achieves better compression on its sample.
 
 \subsection*{(b)}
-Tokenizing the OpenWebText sample with the TinyStories tokenizer produced 3.160 bytes/token (31487 bytes over 9963 tokens). The OpenWebText tokenizer on the same sample produced 4.680 bytes/token. The TinyStories tokenizer produced many more tokens (worse compression). The cross-minus-native difference was $-1.520$ bytes/token.
+Tokenizing the OpenWebText sample with the TinyStories tokenizer produced 3.160 bytes/token (31487 bytes over 9963 tokens). The OpenWebText tokenizer on the same sample produced 4.680 bytes/token. The TinyStories tokenizer produced many more tokens (worse compression).
 
 \subsection*{(c)}
 Measured throughput was about 4.12 MB/s for the TinyStories tokenizer and 1.92 MB/s for the OpenWebText tokenizer (benchmarked on about 5.0M bytes each). At these rates, tokenizing the 825 GB Pile would take about 55.67 hours (2.32 days) with the TinyStories tokenizer. With the OpenWebText tokenizer, it would take about 119.08 hours (4.96 days).
@@ -72,7 +72,7 @@ Measured throughput was about 4.12 MB/s for the TinyStories tokenizer and 1.92 M
 
 \section{Problem (transformer\_accounting): Transformer LM Resource Accounting}
 \subsection*{(a)}
-Trainable parameters (no linear biases; \texttt{RMSNorm} has only a scale vector):
+Trainable parameters:
 \[
 \text{total}
 = (50{,}257\cdot1{,}600)
@@ -171,7 +171,7 @@ Across all 48 blocks plus the final LM head:
 The position-wise feed-forward network is the most expensive component, accounting for roughly 57.5\% of all forward-pass FLOPs. Multi-head self-attention is second at about 37.8\% (with the four large $d \times d$ projections dominating, while $QK^\top$ and the attention-value product together contribute only about $6.7\%$). The final vocabulary projection costs about $4.7\%$, and all non-matmul operations are negligible.
 
 \subsection*{(d)}
-Using the same accounting as above the FLOP proportions are:
+Using the same accounting as above, the FLOP proportions are:
 
 \begin{center}
 \begin{tabular}{lrrrrrrr}
@@ -186,10 +186,10 @@ GPT-2 XL     & 21.47\% & 4.58\% & 4.58\% & 7.16\% & 38.36\% & 19.18\% & 4.68\% \
 \end{tabular}
 \end{center}
 
-As model size increases, FFN and projection-heavy terms take a larger share of total FLOPs. The final vocab projection takes a much smaller share. The attention score and value terms decrease proportionally because \(T\) is fixed and depth-driven terms grow faster.
+As model size increases, FFN and projection-heavy terms take a larger share of total FLOPs. The final vocab projection takes a much smaller share. The attention score and value terms decrease proportionally because \(T\) is fixed, and depth-dependent parts grow faster.
 
 \subsection*{(e)}
-For GPT-2 XL, increasing context length from \(1024\) to \(16{,}384\) raises one-forward-pass FLOPs from \(3{,}516{,}769{,}894{,}400\) to \(133{,}577{,}729{,}638{,}400\) (approximately \(37.98\times\) higher). The FLOP share shifts strongly toward the \(T^2\) attention terms. Attention scores and attention-value rise from \(9.16\%\) to \(61.73\%\). FFN (\(W_1/W_3/W_2\)) falls from \(57.51\%\) to \(24.24\%\). The final projection falls from \(4.68\%\) to \(1.97\%\).
+For GPT-2 XL, increasing context length from \(1024\) to \(16{,}384\) raises one-forward-pass FLOPs from \(3{,}516{,}769{,}894{,}400\) to \(133{,}577{,}729{,}638{,}400\) ($\approx $\(37.98\times\) higher). The FLOP share shifts strongly toward the \(T^2\) attention terms. Attention scores and attention-value rise from \(9.16\%\) to \(61.73\%\). FFN (\(W_1/W_3/W_2\)) falls from \(57.51\%\) to \(24.24\%\). The final projection falls from \(4.68\%\) to \(1.97\%\).
 
 \section{Problem (learning\_rate\_tuning): Tuning the Learning Rate (SGD toy example)}
 At \(\eta=10^1\), the loss decreases steadily but slowly over 10 iterations. At \(\eta=10^2\), the loss decreases faster and reaches a lower final value. This indicates a more aggressive but still stable step. At \(\eta=10^3\), the loss diverges and increases over the course of training. This learning rate is far too large for the quadratic toy loss landscape.
@@ -301,7 +301,7 @@ For Question 7.1, experiment logging is implemented in \texttt{cs336\_basics/run
 
 \section{Problem (learning\_rate): Tune the Learning Rate on TinyStories}
 \subsection*{(a)}
-I ran a log-scale learning-rate sweep with fixed \texttt{batch\_size}=128, \texttt{max\_iters}=10{,}000, and \texttt{context\_length}=256. The sweep covered
+I ran a log-scale learning-rate sweep with fixed \texttt{batch\_size}=128 and \texttt{max\_iters}=10{,}000. The sweep covered
 \[
 \eta \in \{10^{-4}, 3\times 10^{-4}, 10^{-3}, 3\times 10^{-3}, 10^{-2}, 3\times 10^{-2}, 10^{-1}, 1\}.
 \]
@@ -329,7 +329,7 @@ Learning rate \(\eta\) & Best \texttt{val\_loss} & Final \texttt{val\_loss} \\
 \end{tabular}
 \end{center}
 
-The TinyStories target (\(\texttt{val\_loss}<1.45\)) was met: the best run reached \(\texttt{val\_loss}=1.3107\) at \(\eta=10^{-2}\).
+Best run reached \(\texttt{val\_loss}=1.3107\) at \(\eta=10^{-2}\).
 
 Figure~\ref{fig:val_loss_tuning} plots \texttt{eval/val\_loss} over 10{,}000 steps for the swept rates (W\&B panel for the same \texttt{batch\_size}=128 setup). The lowest final validation losses align with \(\eta\in\{3\times 10^{-3},10^{-2}\}\); \(\eta=10^{-1}\) is visibly unstable early; \(\eta=10^{-4}\) improves more slowly than the mid-range rates.
 
@@ -504,7 +504,7 @@ Final validation loss (OpenWebText leaderboard run): \(\texttt{val\_loss}=3.7435
 
 I swept \texttt{batch\_size} \(\in \{64, 128, 256\}\) against \(\eta \in \{10^{-3}, 3\times10^{-3}, 10^{-2}, 3\times10^{-2}\}\) at \texttt{vocab\_size}=32000 and \texttt{context\_length}=256. \texttt{max\_iters} \(\in\{38200, 19100, 9550\}\) was paired to each batch size so \(B\cdot\texttt{max\_iters}\) (token exposure) is constant across the grid. Each job ran under a 45-minute wall-clock cap. Sweep driver: \texttt{cs336\_basics/7\_5\_owt\_batch\_lr\_sweep.py}, Modal \texttt{run\_logged\_experiment}, W\&B \texttt{experiment}=\texttt{owt\_batch\_lr\_sweep}.
 
-Across all twelve runs, \(\eta = 10^{-2}\) achieved the lowest validation loss for every batch size. The best configuration was \texttt{batch\_size}=128, \(\eta = 10^{-2}\), \texttt{max\_iters}=19100 (\texttt{run\_name}=\texttt{q7\_owt\_bs128\_lr0p01\_it19100\_1777310727}). This used the same assignment baseline transformer: \texttt{d\_model}=512, \texttt{num\_layers}=4, \texttt{num\_heads}=16, \texttt{d\_ff}=1344, \texttt{rope\_theta}=10{,}000. AdamW settings: \(\beta_1{=}0.9\), \(\beta_2{=}0.95\), \texttt{weight\_decay}=0.1, \texttt{max\_grad\_norm}=1, \texttt{dtype}=\texttt{float32}. Additional settings: \texttt{warmup\_iters}=1910, cosine decay to \texttt{min\_learning\_rate}=\(3\times 10^{-5}\), \texttt{eval\_interval}=\texttt{max\_iters}, \texttt{eval\_batches}=3, \texttt{checkpoint\_interval}=\(19100\times 10^{3}\).
+Across all twelve runs, \(\eta = 10^{-2}\) achieved the lowest validation loss for every batch size. The best configuration was \texttt{batch\_size}=128, \(\eta = 10^{-2}\), \texttt{max\_iters}=19100. This used the same assignment baseline transformer: \texttt{d\_model}=512, \texttt{num\_layers}=4, \texttt{num\_heads}=16, \texttt{d\_ff}=1344, \texttt{rope\_theta}=10{,}000. AdamW settings: \(\beta_1{=}0.9\), \(\beta_2{=}0.95\), \texttt{weight\_decay}=0.1, \texttt{max\_grad\_norm}=1, \texttt{dtype}=\texttt{float32}. Additional settings: \texttt{warmup\_iters}=1910, cosine decay to \texttt{min\_learning\_rate}=\(3\times 10^{-5}\), \\ \texttt{eval\_interval}=\texttt{max\_iters}, \texttt{eval\_batches}=3, \texttt{checkpoint\_interval}=\(19100\times 10^{3}\).
 
 That run finished in about 41 minutes. Figure~\ref{fig:owt-sweep-best-val-wall} shows \texttt{eval/val\_loss} vs.\ wall-clock time. Loss falls from \(\approx 10.4\) to \(\approx 3.7\) with an almost linear downward trend. Figure~\ref{fig:owt-sweep-best-train-wall} shows \texttt{train/loss}. It starts with a fast drop (roughly \(6.8 \rightarrow 4.7\) in the first few minutes), then a slower noisy descent toward \(\approx 3.8\). The loss was still modestly decreasing at the end, so additional steps would likely help.
 
