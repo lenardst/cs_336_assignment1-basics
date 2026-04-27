@@ -112,23 +112,8 @@ class RotaryPositionalEmbedding(torch.nn.Module):
         self.register_buffer("r_cos", torch.cos(angles), persistent=False)
         self.register_buffer("r_sin", torch.sin(angles), persistent=False)
 
-        if self.d_k % 2 != 0:
-            raise ValueError(f"d_k must be even for RoPE, got d_k={self.d_k}")
-
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
-        if x.shape[-1] != self.d_k:
-            raise ValueError(
-                f"x last dimension must match d_k={self.d_k}, got x.shape[-1]={x.shape[-1]}"
-            )
-
         token_positions = token_positions.to(device=self.r_cos.device, dtype=torch.long)
-        if token_positions.numel() > 0:
-            if token_positions.min() < 0 or token_positions.max() >= self.max_seq_len:
-                raise IndexError(
-                    f"token_positions must be in [0, {self.max_seq_len}), "
-                    f"got min={int(token_positions.min())}, max={int(token_positions.max())}"
-                )
-
         trunc_r_cos = self.r_cos[token_positions].to(device=x.device, dtype=x.dtype)
         trunc_r_sin = self.r_sin[token_positions].to(device=x.device, dtype=x.dtype)
         x_pairs = x.reshape(x.shape[:-1] + (self.d_k // 2, 2))
@@ -181,9 +166,6 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         self.num_heads = num_heads
         self.device = device
         self.dtype = dtype
-
-        if d_model % num_heads != 0:
-            raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads})")
 
         d_k = d_model // num_heads
         d_v = d_k

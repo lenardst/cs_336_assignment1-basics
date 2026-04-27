@@ -1,27 +1,12 @@
 import time
-from pathlib import Path
-from typing import Any
 
 import modal
 
-
-APP_NAME = "train-lm-logged"
-FUNCTION_NAME = "run_logged_experiment"
+APP, FN = "train-lm-logged", "run_logged_experiment"
 app = modal.App("q7-layer-norm-ablation")
 
 
-def _run_tag(lr: float) -> str:
-    return str(lr).replace("-", "m").replace(".", "p")
-
-
-def _build_run_config(
-    experiment: str,
-    model_variant: str,
-    lr: float,
-    run_name: str,
-    max_iters: int,
-    batch_size: int,
-) -> dict[str, Any]:
+def _cfg(experiment: str, model_variant: str, lr: float, run_name: str, max_iters: int, batch_size: int):
     return {
         "experiment": experiment,
         "model_variant": model_variant,
@@ -35,18 +20,8 @@ def _build_run_config(
     }
 
 
-def _submit(configs: list[dict[str, Any]]) -> None:
-    try:
-        deployed_fn = modal.Function.from_name(APP_NAME, FUNCTION_NAME)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Could not find deployed Modal function '{FUNCTION_NAME}'. "
-            f"Deploy first with: modal deploy {Path(__file__).as_posix()}"
-        ) from exc
-
-    for config in configs:
-        call = deployed_fn.spawn(config=config)
-        print(f"submitted run={config['run_name']} call_id={call.object_id}")
+def _tag(x: float) -> str:
+    return str(x).replace("-", "m").replace(".", "p")
 
 
 @app.local_entrypoint()
@@ -56,31 +31,12 @@ def main(
     max_iters: int = 10_000,
     batch_size: int = 128,
 ) -> None:
-    stamp = int(time.time())
-    configs = [
-        _build_run_config(
-            experiment="layer_norm_ablation",
-            model_variant="baseline",
-            lr=base_learning_rate,
-            run_name=f"q7_layernorm_baseline_lr{_run_tag(base_learning_rate)}_{stamp}",
-            max_iters=max_iters,
-            batch_size=batch_size,
-        ),
-        _build_run_config(
-            experiment="layer_norm_ablation",
-            model_variant="layer_norm_ablation",
-            lr=base_learning_rate,
-            run_name=f"q7_layernorm_no_rmsnorm_lr{_run_tag(base_learning_rate)}_{stamp}",
-            max_iters=max_iters,
-            batch_size=batch_size,
-        ),
-        _build_run_config(
-            experiment="layer_norm_ablation",
-            model_variant="layer_norm_ablation",
-            lr=lower_learning_rate,
-            run_name=f"q7_layernorm_no_rmsnorm_lr{_run_tag(lower_learning_rate)}_{stamp}",
-            max_iters=max_iters,
-            batch_size=batch_size,
-        ),
+    t = int(time.time())
+    fn = modal.Function.from_name(APP, FN)
+    cfgs = [
+        _cfg("layer_norm_ablation", "baseline", base_learning_rate, f"q7_layernorm_baseline_lr{_tag(base_learning_rate)}_{t}", max_iters, batch_size),
+        _cfg("layer_norm_ablation", "layer_norm_ablation", base_learning_rate, f"q7_layernorm_no_rmsnorm_lr{_tag(base_learning_rate)}_{t}", max_iters, batch_size),
+        _cfg("layer_norm_ablation", "layer_norm_ablation", lower_learning_rate, f"q7_layernorm_no_rmsnorm_lr{_tag(lower_learning_rate)}_{t}", max_iters, batch_size),
     ]
-    _submit(configs)
+    for c in cfgs:
+        print(fn.spawn(config=c).object_id)

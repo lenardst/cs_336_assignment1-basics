@@ -10,33 +10,25 @@ import modal
 import numpy as np
 import torch
 
-transformer_module = importlib.import_module("cs336_basics.3_transformer_lm")
-ablation_module = importlib.import_module("cs336_basics.7_ablations")
-training_module = importlib.import_module("cs336_basics.4_training")
+Tm = importlib.import_module("cs336_basics.3_transformer_lm")
+Ab = importlib.import_module("cs336_basics.7_ablations")
+Tr = importlib.import_module("cs336_basics.4_training")
 
-TransformerLM = getattr(transformer_module, "TransformerLM")
-layer_norm_ablation_transformer_model = getattr(
-    ablation_module, "layer_norm_ablation_transformer_model"
+TransformerLM = Tm.TransformerLM
+cross_entropy, get_batch = Tr.cross_entropy, Tr.get_batch
+AdamW, cosine_lr_wup = Tr.AdamW, Tr.cosine_lr_wup
+gradient_clipping, save_checkpoint, load_checkpoint = (
+    Tr.gradient_clipping,
+    Tr.save_checkpoint,
+    Tr.load_checkpoint,
 )
-pre_norm_ablation_transformer_model = getattr(
-    ablation_module, "pre_norm_ablation_transformer_model"
-)
-no_pos_emb_transformer_model = getattr(ablation_module, "no_pos_emb_transformer_model")
-swiglu_ablation_transformer_model = getattr(ablation_module, "swiglu_ablation_transformer_model")
-cross_entropy = getattr(training_module, "cross_entropy")
-get_batch = getattr(training_module, "get_batch")
-AdamW = getattr(training_module, "AdamW")
-cosine_lr_wup = getattr(training_module, "cosine_lr_wup")
-gradient_clipping = getattr(training_module, "gradient_clipping")
-save_checkpoint = getattr(training_module, "save_checkpoint")
-load_checkpoint = getattr(training_module, "load_checkpoint")
 
 MODEL_CLASS_BY_VARIANT = {
     "baseline": TransformerLM,
-    "layer_norm_ablation": layer_norm_ablation_transformer_model,
-    "pre_norm_ablation": pre_norm_ablation_transformer_model,
-    "no_pos_emb": no_pos_emb_transformer_model,
-    "swiglu_ablation": swiglu_ablation_transformer_model,
+    "layer_norm_ablation": Ab.layer_norm_ablation_transformer_model,
+    "pre_norm_ablation": Ab.pre_norm_ablation_transformer_model,
+    "no_pos_emb": Ab.no_pos_emb_transformer_model,
+    "swiglu_ablation": Ab.swiglu_ablation_transformer_model,
 }
 
 EXPERIMENT_TO_MODEL_VARIANT = {
@@ -154,8 +146,6 @@ def _resolve_train_config(overrides: dict[str, Any] | None = None) -> dict[str, 
 
 
 def load_token_array(path: Path) -> np.ndarray | np.memmap:
-    if not path.exists():
-        raise FileNotFoundError(f"Missing dataset file: {path}")
     if path.suffix == ".npy":
         return np.load(path, mmap_mode="r+")
     return np.memmap(path, dtype=np.uint16, mode="r+")
@@ -180,14 +170,7 @@ def _build_model(args: argparse.Namespace) -> torch.nn.Module:
     }
 
     model_variant = str(getattr(args, "model_variant", "baseline")).lower()
-    model_cls = MODEL_CLASS_BY_VARIANT.get(model_variant)
-    if model_cls is None:
-        raise ValueError(
-            f"Unknown model_variant '{model_variant}'. "
-            f"Expected one of {sorted(MODEL_CLASS_BY_VARIANT)}"
-        )
-
-    model = model_cls(**model_kwargs)
+    model = MODEL_CLASS_BY_VARIANT[model_variant](**model_kwargs)
     if args.compile == "default":
         model = torch.compile(model)
     elif args.compile == "aot_eager":
@@ -255,29 +238,12 @@ def _namespace_from_config(config: dict[str, Any], remote: bool) -> argparse.Nam
 
 
 def train(args: argparse.Namespace) -> None:
-    print(
-        f"[startup] run={args.run_name} experiment={args.experiment} "
-        f"model_variant={args.model_variant} device={args.device} "
-        f"dtype={args.dtype} max_iters={args.max_iters}"
-    )
+    print(args.run_name, args.device, args.dtype, args.max_iters)
     if args.device.startswith("cuda") and args.dtype == "float32":
-        # Enable TF32 tensor cores for faster float32 matmuls on supported NVIDIA GPUs.
         torch.set_float32_matmul_precision("high")
-        print("[startup] enabled torch float32 matmul precision = high (TF32)")
-    print(f"[data] loading train array from {args.train_path}")
     train_data, val_data = load_train_val_arrays(args.train_path, args.val_path)
-    print(
-        f"[data] loaded train shape={train_data.shape} dtype={train_data.dtype} "
-        f"val shape={val_data.shape} dtype={val_data.dtype}"
-    )
-    print(
-        f"[data] batch_size={args.batch_size} context_length={args.context_length} "
-        f"tokens_per_step={args.batch_size * args.context_length}"
-    )
-    print("[model] building TransformerLM")
     model = _build_model(args)
-    num_params = sum(param.numel() for param in model.parameters())
-    print(f"[model] built model with parameters={num_params:,}")
+    print("params", sum(p.numel() for p in model.parameters()))
     optimizer = AdamW(
         model.parameters(),
         lr=args.learning_rate,
@@ -290,11 +256,7 @@ def train(args: argparse.Namespace) -> None:
     args.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     start_iter = 0
     if args.resume and args.checkpoint_path.exists():
-        print(f"[checkpoint] loading checkpoint from {args.checkpoint_path}")
         start_iter = load_checkpoint(args.checkpoint_path, model, optimizer)
-        print(f"[checkpoint] resumed at iter={start_iter}")
-    else:
-        print(f"[checkpoint] starting fresh; output path={args.checkpoint_path}")
 
     t0 = time.perf_counter()
     tokens_per_step = args.batch_size * args.context_length
@@ -315,36 +277,28 @@ def train(args: argparse.Namespace) -> None:
         if wandb_entity:
             wandb_kwargs["entity"] = wandb_entity
         wandb_run = wandb.init(**wandb_kwargs)
-        print(f"[wandb] initialized run={wandb_run.id}")
-    print("[train] entering optimization loop")
     for i in range(start_iter, args.max_iters):
         step_count = i + 1
         total_tokens_processed = args.batch_size * step_count * args.context_length
         final_step_count = step_count
-        try:
-            lr = cosine_lr_wup(
-                i,
-                max_learning_rate=args.learning_rate,
-                min_learning_rate=args.min_learning_rate,
-                warmup_iters=args.warmup_iters,
-                cosine_cycle_iters=args.max_iters,
-            )
-            for group in optimizer.param_groups:
-                group["lr"] = lr
+        lr = cosine_lr_wup(
+            i,
+            max_learning_rate=args.learning_rate,
+            min_learning_rate=args.min_learning_rate,
+            warmup_iters=args.warmup_iters,
+            cosine_cycle_iters=args.max_iters,
+        )
+        for group in optimizer.param_groups:
+            group["lr"] = lr
 
-            x, y = get_batch(train_data, args.batch_size, args.context_length, args.device)
-            logits = model(x.long())
-            loss = cross_entropy(logits, y.long())
+        x, y = get_batch(train_data, args.batch_size, args.context_length, args.device)
+        logits = model(x.long())
+        loss = cross_entropy(logits, y.long())
 
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            gradient_clipping(model.parameters(), args.max_grad_norm)
-            optimizer.step()
-        except Exception as exc:
-            raise RuntimeError(
-                f"Training failed at iter={i} "
-                f"(device={args.device}, batch_size={args.batch_size}, context_length={args.context_length})"
-            ) from exc
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        gradient_clipping(model.parameters(), args.max_grad_norm)
+        optimizer.step()
 
         should_eval = (i % args.eval_interval == 0) or (i == args.max_iters - 1)
         should_log_train = (
@@ -414,33 +368,19 @@ def train(args: argparse.Namespace) -> None:
         should_ckpt = (i % args.checkpoint_interval == 0) or (i == args.max_iters - 1)
         if should_ckpt:
             save_checkpoint(model, optimizer, i + 1, args.checkpoint_path)
-            print(f"[checkpoint] saved iter={i + 1} -> {args.checkpoint_path}")
-            try:
-                output_volume.commit()
-            except Exception:
-                # Local non-Modal runs should not fail on volume commit.
-                pass
-    final_total_tokens_processed = args.batch_size * final_step_count * args.context_length
-    print(
-        f"[done] training complete, logs at {args.log_path} | "
-        f"total_tokens_processed={final_total_tokens_processed}"
-    )
+            getattr(output_volume, "commit", lambda: None)()
+    print("done", args.log_path, args.batch_size * final_step_count * args.context_length)
     if wandb_run is not None:
         wandb_run.finish()
 
 
 def _normalize_remote_device(device: str) -> str:
-    normalized = device.lower()
-    if normalized == "mps":
-        if torch.cuda.is_available():
-            print("[startup] requested device=mps in Modal; remapping to cuda")
-            return "cuda"
-        print("[startup] requested device=mps in Modal; remapping to cpu")
+    d = device.lower()
+    if d == "mps":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if d == "cuda" and not torch.cuda.is_available():
         return "cpu"
-    if normalized == "cuda" and not torch.cuda.is_available():
-        print("[startup] requested device=cuda but CUDA unavailable; remapping to cpu")
-        return "cpu"
-    return normalized
+    return d
 
 
 @app.function(
@@ -465,27 +405,10 @@ def run_train_lm_remote(config: dict[str, Any] | None = None) -> str:
 
 @app.local_entrypoint()
 def main(config_json: str = "") -> None:
-    try:
-        deployed_fn = modal.Function.from_name(APP_NAME, "run_train_lm_remote")
-    except Exception as exc:
-        raise RuntimeError(
-            "Could not find deployed Modal function 'run_train_lm_remote'. "
-            f"Deploy first with: modal deploy {Path(__file__).as_posix()}"
-        ) from exc
-
-    overrides: dict[str, Any] = {}
-    if config_json.strip():
-        overrides = json.loads(config_json)
-        if not isinstance(overrides, dict):
-            raise ValueError("config_json must decode to a JSON object.")
-    config = _resolve_train_config(overrides)
-    function_call = deployed_fn.spawn(config=config)
-    print("Submitted run_train_lm_remote job asynchronously.")
-    print(f"FunctionCall ID: {function_call.object_id}")
-    print(
-        f"Artifacts will be written to Modal Volume '{OUTPUT_VOLUME_NAME}' at "
-        f"{REMOTE_OUTPUT_DIR}: {config['checkpoint_path']} and {config['log_path']}"
-    )
+    o = json.loads(config_json) if config_json.strip() else {}
+    cfg = _resolve_train_config(o if isinstance(o, dict) else {})
+    c = modal.Function.from_name(APP_NAME, "run_train_lm_remote").spawn(config=cfg)
+    print(c.object_id, cfg["checkpoint_path"])
 
 
 if __name__ == "__main__":

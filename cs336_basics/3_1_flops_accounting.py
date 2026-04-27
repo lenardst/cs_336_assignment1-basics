@@ -1,15 +1,11 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 
 def matmul_flops(m: int, n: int, p: int) -> int:
-    """FLOPs for (m x n) @ (n x p), using 2mnp convention."""
     return 2 * m * n * p
 
 
 def default_d_ff(d_model: int) -> int:
-    """Match the d_ff default used in 3_transformer_lm.py."""
     return round(d_model * 8 / 3 / 64) * 64
 
 
@@ -26,10 +22,6 @@ class ModelConfig:
 
 
 def transformer_lm_matmul_flops(config: ModelConfig) -> dict[str, float]:
-    """
-    Returns matrix-multiplication FLOPs only (forward pass).
-    Token embedding is excluded because it is an index lookup.
-    """
     b = config.batch_size
     t = config.context_length
     d = config.d_model

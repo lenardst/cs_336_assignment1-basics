@@ -10,6 +10,8 @@ from typing import Any, Iterable, Iterator
 import modal
 import numpy as np
 
+TokenizerCls = importlib.import_module("cs336_basics.2_4_tokenizer").Tokenizer
+
 APP_NAME = "tokenizer-experiments"
 DATA_DIR = Path("data")
 TINY_TRAIN = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
@@ -154,11 +156,6 @@ def encode_iterable_to_uint16_npy(
         chunk_idx = 0
 
         for token in token_ids:
-            if token < 0 or token > np.iinfo(np.uint16).max:
-                raise ValueError(
-                    f"Token ID {token} cannot fit into uint16. "
-                    "Check vocab size or choose a larger dtype."
-                )
             current.append(token)
             if token > max_token_id:
                 max_token_id = token
@@ -227,13 +224,7 @@ def encode_dataset_file(
 
 
 def load_tokenizer(vocab_path: Path, merges_path: Path, special_tokens: list[str]) -> Any:
-    tokenizer_module = importlib.import_module("cs336_basics.2_4_tokenizer")
-    tokenizer_cls = getattr(tokenizer_module, "Tokenizer")
-    return tokenizer_cls.from_files(
-        vocab_filepath=str(vocab_path),
-        merges_filepath=str(merges_path),
-        special_tokens=special_tokens,
-    )
+    return TokenizerCls.from_files(str(vocab_path), str(merges_path), special_tokens=special_tokens)
 
 
 def _remote_data_path(local_path: Path) -> Path:
@@ -393,9 +384,6 @@ def encode_one_dataset_remote(
     chunk_chars: int = 2_000_000,
     shard_target_chars: int = DATASET_SHARD_TARGET_CHARS,
 ) -> dict[str, float | int | str]:
-    if dataset_key not in ENCODING_DATASETS:
-        raise ValueError(f"Unknown dataset key: {dataset_key}")
-
     os.chdir(REMOTE_WORKDIR)
     local_input_path, tokenizer_key = ENCODING_DATASETS[dataset_key]
     input_path = _remote_data_path(local_input_path)
@@ -480,22 +468,6 @@ def run_tokenizer_experiments_remote(
             progress_file.write(line + "\n")
         if commit:
             output_volume.commit()
-
-    for required_path in [
-        tiny_train,
-        tiny_valid,
-        owt_train,
-        owt_valid,
-        tiny_vocab,
-        tiny_merges,
-        owt_vocab,
-        owt_merges,
-    ]:
-        if not required_path.exists():
-            raise FileNotFoundError(
-                f"Missing required path: {required_path}. "
-                "Ensure the file exists in the local data/ directory before running Modal."
-            )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     progress_log_path.write_text("", encoding="utf-8")
@@ -702,28 +674,14 @@ def main(
     throughput_min_bytes: int = 5_000_000,
     skip_dataset_encoding: bool = False,
 ) -> None:
-    try:
-        deployed_fn = modal.Function.from_name(APP_NAME, "run_tokenizer_experiments_remote")
-    except Exception as exc:
-        raise RuntimeError(
-            "Could not find deployed Modal function 'run_tokenizer_experiments_remote'. "
-            f"Deploy first with: modal deploy {Path(__file__).as_posix()}"
-        ) from exc
-
-    function_call = deployed_fn.spawn(
+    c = modal.Function.from_name(APP_NAME, "run_tokenizer_experiments_remote").spawn(
         n_sample_docs=n_sample_docs,
         seed=seed,
         chunk_chars=chunk_chars,
         throughput_min_bytes=throughput_min_bytes,
         skip_dataset_encoding=skip_dataset_encoding,
     )
-    print("Submitted tokenizer experiments job asynchronously.")
-    print(f"FunctionCall ID: {function_call.object_id}")
-    print(
-        f"Artifacts will be written to Modal Volume '{OUTPUT_VOLUME_NAME}' at "
-        f"{REMOTE_OUTPUT_DIR}: {ABC_LOG_FILENAME}, {ABC_JSON_FILENAME}, metrics.log, metrics.json, "
-        "sampled_documents.json, and encoded .npy files."
-    )
+    print(c.object_id)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
-import importlib
-import pickle
 import os
+import pickle
 import time
+from importlib import import_module
 
-train_bpe = importlib.import_module("cs336_basics.2_0_bpe_tokenizer").train_bpe
+train_bpe = import_module("cs336_basics.2_0_bpe_tokenizer").train_bpe
 
 input_path = "data/TinyStoriesV2-GPT4-train.txt"
 max_vocab_size = 10_000

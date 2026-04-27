@@ -1,6 +1,6 @@
 import pickle
-from typing import Iterable, Iterator
 from importlib import import_module
+from typing import Iterable, Iterator
 
 pre_tokenize = import_module("cs336_basics.2_0_bpe_tokenizer").pre_tokenize
 

@@ -2,25 +2,16 @@ import importlib
 import math
 import os
 from collections.abc import Callable
-from re import M
-from typing import IO, BinaryIO
-from typing import Optional
+from typing import IO, BinaryIO, Optional
 
 import torch
 from torch import Tensor
 
+_TM = importlib.import_module("cs336_basics.3_transformer_lm")
 
-def cross_entropy(
-    logits: Tensor,
-    targets: Tensor,
-) -> Tensor:
-    """
-    Compute average cross-entropy over all batch-like dimensions.
 
-    `logits` must have shape (..., vocab_size), and `targets` must have shape (...).
-    """
-    transformer_module = importlib.import_module("cs336_basics.3_transformer_lm")
-    softmax_fn = getattr(transformer_module, "softmax")
+def cross_entropy(logits: Tensor, targets: Tensor) -> Tensor:
+    softmax_fn = _TM.softmax
 
     shifted_logits = logits - torch.amax(logits, dim=-1, keepdim=True)
     probs = softmax_fn(shifted_logits, dim=-1)
@@ -36,8 +27,6 @@ def cross_entropy(
 
 class SGD(torch.optim.Optimizer):
     def __init__(self, params, lr: float = 1e-3):
-        if lr < 0:
-            raise ValueError(f"Invalid learning rate: {lr}")
         defaults = {"lr": lr}
         super().__init__(params, defaults)
 

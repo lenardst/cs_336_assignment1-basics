@@ -3,16 +3,14 @@ import importlib
 import torch
 from einops import rearrange
 
-
-transformer_module = importlib.import_module("cs336_basics.3_transformer_lm")
-
-Linear = getattr(transformer_module, "Linear")
-Embedding = getattr(transformer_module, "Embedding")
-RMSNorm = getattr(transformer_module, "RMSNorm")
-PositionwiseFeedForward = getattr(transformer_module, "PositionwiseFeedForward")
-CausalMultiHeadSelfAttention = getattr(transformer_module, "CausalMultiHeadSelfAttention")
-run_scaled_dot_product_attention = getattr(transformer_module, "run_scaled_dot_product_attention")
-silu = getattr(transformer_module, "silu")
+M = importlib.import_module("cs336_basics.3_transformer_lm")
+Linear = M.Linear
+Embedding = M.Embedding
+RMSNorm = M.RMSNorm
+PositionwiseFeedForward = M.PositionwiseFeedForward
+CausalMultiHeadSelfAttention = M.CausalMultiHeadSelfAttention
+run_scaled_dot_product_attention = M.run_scaled_dot_product_attention
+silu = M.silu
 
 
 class SiLUFeedForward(torch.nn.Module):
@@ -36,10 +34,6 @@ class NoPosEmbCausalMultiHeadSelfAttention(torch.nn.Module):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
-
-        if d_model % num_heads != 0:
-            raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads})")
-
         d_k = d_model // num_heads
         d_v = d_k
 
@@ -193,9 +187,6 @@ class _BaseTransformerLM(torch.nn.Module):
         dtype=None,
     ) -> None:
         super().__init__()
-        if self.block_cls is None:
-            raise ValueError("block_cls must be set by subclasses")
-
         self.context_length = context_length
         self.token_embedding = Embedding(vocab_size, d_model, device=device, dtype=dtype)
         self.norm = RMSNorm(d_model, device=device, dtype=dtype) if self.final_norm else torch.nn.Identity()
