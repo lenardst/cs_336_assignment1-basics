@@ -376,7 +376,7 @@ None of these runs showed hard numerical divergence (no NaNs/Infs and all runs r
     \label{fig:lr-divergence}
 \end{figure}
 
-This behavior matches the expected pattern for cosine decay with short warmup: rates that are too low never make enough progress, and rates that are too high settle into worse minima even if they do not immediately diverge.
+The best rate (.01) is apprximately 1/10 of the rate where instability starts (.1).
 
 
 \section{Problem (batch\_size\_experiment): Batch Size Variations}
@@ -406,16 +406,26 @@ Batch size & Best learning rate & Best \texttt{eval/train\_loss} \\
 Findings: although \texttt{batch\_size}=1 at \(\eta=10^{-4}\) has the lowest training loss (\(1.1619\)), its true validation loss is \(1.6665\), so it overfits/does not generalize as well as larger-batch settings. Among practical larger batches, increasing batch size from 64 to 256 improved the best achievable loss, but pushing to 1024 hurt again. The best practical setting in this sweep is \texttt{batch\_size}=256 with \(\eta=10^{-2}\) (best \texttt{eval/train\_loss} \(=1.3116\)), suggesting a non-monotonic batch-size tradeoff at fixed token budget.
 
 \section{Problem (generate): Generate Text}
-Text dump generated from \texttt{token-tango-b256-lr3e-3-327m}:
-\begin{verbatim}
-Once upon a time, there was a little elephant named Tom. He was very fast and cl to help bad run if.
- saw day, aittle played named wanted no to started first shin wanted. his was very sad? she had a door talked.
- first shin wanted play, " hidum trees, wanted. Tim lived helpvery run ifound first shin wanted found j first shin wantedould talked and play, "I livedith unl, wanted. Tim livedround your talked run ifound first shin wantedried and play, "ablevery, first shin wantedound
- vis shin wantedould talked was up door by. his was very happy and play, "ablevery, first shin wanted. bl kn very handound first shin wantedried and play, "omet grabbed candy, wanted. Tim inside laughed surprise to helpveryound Soily unoud beautifulip safe.
-<|endoftext|>
-\end{verbatim}
+The following is LM-generated text from a TinyStories run with \texttt{vocab\_size}=32000 (32k BPE tokenizer), learning rate \(3\times 10^{-3}\), sampled from the final step-10{,}000 checkpoint \texttt{tiny\_32k\_bs256\_lr3e-3\_10k\_wandb.pt} (saved as \texttt{tiny\_32k\_lr3e3\_wandb\_gen\_lilly\_10kckpt.txt}). Decoding used \texttt{temperature}=0.45, \texttt{top\_p}=0.85, and \texttt{max\_new\_tokens}=256.
+\begin{quote}
+Once upon a time, there was a little girl named Lilly. Lilly was three years old and loved to play with her toys. One day, she was playing in her room when she heard a noise coming from the closet. She was scared and ran to the closet to see what was going on.
 
-The sample has some local coherence, because it keeps a simple story frame and repeats the same character. However, overall fluency is still weak because many words are malformed and some phrases repeat in loops. Two factors likely explain this.  First, higher temperature generally produces less fluent output. Second, lower top-p produces more fluent output.
+Inside the closet, she found a small, scared kitten. It was meowing and seemed very sad. Lilly wanted to help the kitten, so she decided to take it to her mom.
+
+When Lilly arrived, her mom was very surprised to see the kitten. She said, ``Oh, poor little kitten! What happened to you?''
+
+Lilly replied, ``I was playing with my toys and I saw the closet and I wanted to help it.''
+
+Her mom smiled and said, ``That's very kind of you, Lilly. You can help the kitten, but you must be very careful.''
+
+Lilly nodded and said, ``I will, Mommy.'' She carefully picked up the kitten and put it back in the closet.
+
+The next day, Lilly and her mom went to the closet and found the kitten. Lilly was so happy to help the kitten and she knew that she had done a good thing.
+
+\texttt{<|endoftext|>}
+\end{quote}
+
+First, I had to increase the vocab size to achive fluency. With 10k vocab, the model produced words that do not exist and the result was influent. With vacab size 32k, the model produces gramatically correct stories. Second, decoding hyperparameters (temperature and top-$p$) had to be configured (low temp and top-p) to obtain a fluent and somewhat coherent output.
 
 \section{Problem (layer\_norm\_ablation): Remove RMSNorm and Train}
 Runs (\(327.68\)M tokens):
@@ -501,6 +511,19 @@ South Park's income in China is estimated to be about $1 billion, according to a
 Fluency discussion: the sample is locally fluent (grammatical sentences and plausible news-style phrasing), but globally inconsistent (topic drift and entity/claim incoherence across paragraphs). At least two factors affecting quality are: (1) \textbf{decoding settings} (higher temperature/top-p increase diversity but can reduce consistency), and (2) \textbf{training scale/checkpoint quality} (more high-quality tokens and a better-converged checkpoint generally improve long-range coherence and factual consistency). Additional contributors include \textbf{model capacity/context length} and \textbf{tokenizer-domain match}.
 
 \section{Problem (leaderboard): Leaderboard Submission}
-\placeholder{Final validation loss, learning curve with wall-clock x-axis under 45 minutes, and description of modifications/hyperparameters.}
+Final validation loss (OpenWebText leaderboard run): \(\texttt{val\_loss}=3.743525385856629\).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{\detokenize{figures/leaderboard/owt_val_loss_wallclock_under45m_20260424.png}}
+    \caption{Leaderboard submission learning curve (\texttt{eval/val\_loss}) with wall-clock time on the x-axis (minutes). The run reaches final \(\texttt{val\_loss}=3.743525385856629\) within the 45-minute budget.}
+    \label{fig:leaderboard-wallclock}
+\end{figure}
+
+I added \texttt{cs336\_basics/7\_5\_owt\_batch\_lr\_sweep.py}: a Modal local entrypoint that builds twelve Python dicts (every pair in \texttt{batch\_sizes = [64, 128, 256]} \(\times\) \texttt{LEARNING\_RATES = (1e-3, 3e-3, 1e-2, 3e-2)}), sets \texttt{max\_iters} to \((20000, 10000, 5000)\) respectively for those batch sizes (same token totals as in \texttt{7\_6\_batch\_size\_experiment.py} for those three \(B\)), default \texttt{context\_length = 256}, and for each dict calls \texttt{modal.Function.from\_name("train-lm-logged", "run\_logged\_experiment").spawn(config=...)} so training runs inside the deployed \texttt{run\_logged\_experiment} image.
+Each dict passes overrides consumed by \texttt{train\_lm.\_namespace\_from\_config}: \texttt{experiment = "owt\_batch\_lr\_sweep"}, \texttt{model\_variant = "baseline"}, \texttt{vocab\_size = 32000}, the chosen \texttt{learning\_rate}, \texttt{batch\_size}, \texttt{max\_iters}, \texttt{context\_length}, \texttt{train\_path} and \texttt{val\_path} as the absolute paths \texttt{/tokenizer\_experiments\_outputs/owt\_train\_uint16.npy} and \texttt{/tokenizer\_experiments\_outputs/owt\_valid\_uint16.npy} (prefix \texttt{train\_lm.REMOTE\_TOKENIZER\_OUTPUT\_DIR} on the Modal tokenizer volume \texttt{cs336-tokenizer-experiments}, not files baked from local \texttt{data/}), \texttt{eval\_interval = max\_iters}, \texttt{eval\_batches = 3}, \texttt{checkpoint\_interval = max\_iters * 1000}, plus \texttt{run\_name}, \texttt{checkpoint\_path}, and \texttt{log\_path} under the output volume.
+\texttt{run\_logged\_experiment} forces \texttt{enable\_wandb = True} before calling \texttt{train\_lm.train}; run names look like \texttt{q7\_owt\_bs\{B\}\_lr\{tag\}\_it\{max\_iters\}\_\{unix\_stamp\}}.
+
+What I changed for the leaderboard run itself: I experimented with the warmup schedule and tested a longer warmup phase, which improved optimization stability and fit when training with a high learning rate.
 
 \end{document}
