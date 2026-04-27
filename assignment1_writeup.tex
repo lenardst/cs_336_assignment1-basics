@@ -146,7 +146,29 @@ Total FLOPs in one forward pass:
 \]
 
 \subsection*{(c)}
-The PositionwiseFeedForward requires $14{,}050{,}918{,}400 \times 3 = 42{,}152{,}755{,}200$ FLOPs. The CausalMultiHeadSelfAttention requires $3{,}355{,}443{,}200 \times 2 + 5{,}242{,}880{,}000 = 11{,}953{,}766{,}400$ FLOPs. The FFN costs more than four times the attention.
+Using the per-matmul FLOP counts from part (b), the FLOPs for one forward pass break down as follows.
+
+Per \texttt{TransformerBlock}:
+\begin{itemize}
+    \item Attention QKV projections: $3 \times 5{,}242{,}880{,}000 = 15{,}728{,}640{,}000$ FLOPs.
+    \item Attention scores $QK^\top$: $3{,}355{,}443{,}200$ FLOPs.
+    \item Attention-value product: $3{,}355{,}443{,}200$ FLOPs.
+    \item Attention output projection $W_O$: $5{,}242{,}880{,}000$ FLOPs.
+    \item \textbf{Attention total per block:} $27{,}682{,}406{,}400$ FLOPs.
+    \item Feed-forward $W_1, W_2, W_3$: $3 \times 14{,}050{,}918{,}400 = 42{,}152{,}755{,}200$ FLOPs.
+    \item \textbf{FFN total per block:} $42{,}152{,}755{,}200$ FLOPs.
+    \item Per-block total: $69{,}835{,}161{,}600$ FLOPs.
+\end{itemize}
+
+Across all 48 blocks plus the final LM head:
+\begin{itemize}
+    \item Attention (all blocks): $48 \times 27{,}682{,}406{,}400 = 1{,}328{,}755{,}507{,}200$ FLOPs ($\approx 37.78\%$ of total).
+    \item FFN (all blocks): $48 \times 42{,}152{,}755{,}200 = 2{,}023{,}332{,}249{,}600$ FLOPs ($\approx 57.53\%$ of total).
+    \item Final output projection: $164{,}682{,}137{,}600$ FLOPs ($\approx 4.68\%$ of total).
+    \item Token embedding lookup, RMSNorm, residual additions, softmax, and SiLU: negligible compared to the matmul terms.
+\end{itemize}
+
+The position-wise feed-forward network is the most expensive component, accounting for roughly 57.5\% of all forward-pass FLOPs. Multi-head self-attention is second at about 37.8\% (with the four large $d \times d$ projections dominating, while $QK^\top$ and the attention-value product together contribute only about $6.7\%$). The final vocabulary projection costs about $4.7\%$, and all non-matmul operations are negligible.
 
 \subsection*{(d)}
 Using the same accounting as above the FLOP proportions are:
@@ -222,21 +244,20 @@ M_{\text{opt}} = 8P \text{ bytes}.
 
 \[
 M_{\text{peak}} = M_{\text{params}} + M_{\text{act}} + M_{\text{grad}} + M_{\text{opt}}
-= 16P + 4A \text{ bytes},
+= 16P + 4A \text{ bytes}.
 \]
-\[
-\boxed{
+\begin{align*}
 M_{\text{peak}}
-= 32\,\text{vocab\_size}\,d_{\text{model}}
+&= 32\,\text{vocab\_size}\,d_{\text{model}}
 + 192\,\text{num\_layers}\,d_{\text{model}}^2
 + 32\,\text{num\_layers}\,d_{\text{model}}
-+ 16\,d_{\text{model}}
-+ \frac{224}{3}\,\text{num\_layers}\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
-+ 8\,\text{num\_layers}\,\text{batch\_size}\,\text{num\_heads}\,\text{context\_length}^2
-+ 4\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
++ 16\,d_{\text{model}} \\
+&\quad + \frac{224}{3}\,\text{num\_layers}\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
++ 8\,\text{num\_layers}\,\text{batch\_size}\,\text{num\_heads}\,\text{context\_length}^2 \\
+&\quad + 4\,\text{batch\_size}\,\text{context\_length}\,d_{\text{model}}
 + 8\,\text{batch\_size}\,\text{context\_length}\,\text{vocab\_size}
-\;\text{bytes}.}
-\]
+\;\text{bytes}.
+\end{align*}
 
 \subsection*{(b)}
 Using \(V=50{,}257\), \(T=1024\), \(L=48\), \(d=1600\), \(h=25\), \(d_{\text{ff}}=4288\):
@@ -256,9 +277,12 @@ Check: \(M_{\text{peak}}(3)=75{,}367{,}418{,}880<80{,}000{,}000{,}000\), while \
     \text{1. Weight decay:} \quad & p \gets p - (\eta \lambda) p && \text{(2 FLOPs)} \\
     \text{2. First moment ($m$):} \quad & m \gets \beta_1 m + (1 - \beta_1) g && \text{(3 FLOPs)} \\
     \text{3. Second moment ($v$):} \quad & v \gets \beta_2 v + (1 - \beta_2) g^2 && \text{(4 FLOPs)} \\
-    \text{4. Parameter update:} \quad & p \gets p - \alpha_t \frac{m}{\sqrt{v} + \epsilon} && \text{(5 FLOPs)} \\[1ex]
-    \textbf{Total:} \quad & \textbf{14 FLOPs per parameter} \implies \mathbf{14P \text{ FLOPs}} &&
+    \text{4. Parameter update:} \quad & p \gets p - \alpha_t \frac{m}{\sqrt{v} + \epsilon} && \text{(5 FLOPs)} \\
 \end{align*}
+Total: 14 FLOPs per parameter. With \(P=1{,}640{,}452{,}800\) (from the transformer\_accounting problem), one AdamW step costs
+\[
+14P = 14 \times 1{,}640{,}452{,}800 = 22{,}966{,}339{,}200 \text{ FLOPs}.
+\]
 
 \subsection*{(d)}
 \[
@@ -307,15 +331,17 @@ Learning rate \(\eta\) & Best \texttt{val\_loss} & Final \texttt{val\_loss} \\
 
 The TinyStories target (\(\texttt{val\_loss}<1.45\)) was met: the best run reached \(\texttt{val\_loss}=1.3107\) at \(\eta=10^{-2}\).
 
-\subsection*{(b)}
-None of these runs showed hard numerical divergence (no NaNs/Infs, all runs reached step 10{,}000). However, optimization quality varied strongly with \(\eta\). The \(\eta=1\) curve shows large early instability spikes in validation loss, then recovers to a much worse plateau. The best region is \(\eta \in [3\times 10^{-3}, 10^{-2}]\). Too-small rates (\(10^{-4}, 3\times 10^{-4}\)) underfit within the token budget. Too-large rates (\(10^{-1}, 1\)) train to clearly worse final loss.
+Figure~\ref{fig:val_loss_tuning} plots \texttt{eval/val\_loss} over 10{,}000 steps for the swept rates (W\&B panel for the same \texttt{batch\_size}=128 setup). The lowest final validation losses align with \(\eta\in\{3\times 10^{-3},10^{-2}\}\); \(\eta=10^{-1}\) is visibly unstable early; \(\eta=10^{-4}\) improves more slowly than the mid-range rates.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.99\textwidth]{\detokenize{figures/learning_rate/lr_sweep_20260424.png}}
-    \caption{Validation-loss curves from the learning-rate sweep submitted in this run (\(\eta \in \{10^{-4},3\times10^{-4},10^{-3},3\times10^{-3},10^{-2},3\times10^{-2},10^{-1},1\}\), \texttt{batch\_size}=128). The \(\eta=1\) trace is highly unstable early, while mid-range rates achieve the best final losses.}
-    \label{fig:lr-divergence}
+    \includegraphics[width=0.99\textwidth]{\detokenize{figures/learning_rate/val_loss_lr_tuning.png}}
+    \caption{Validation loss (\texttt{eval/val\_loss}) over 10{,}000 training steps for the TinyStories learning-rate sweep. Learning rates \(10^{-2}\) and \(3\times 10^{-3}\) reach the best final losses; \(10^{-1}\) shows large early oscillations; \(10^{-4}\) remains relatively high at the step budget.}
+    \label{fig:val_loss_tuning}
 \end{figure}
+
+\subsection*{(b)}
+None of these runs showed hard numerical divergence (no NaNs/Infs, all runs reached step 10{,}000). However, optimization quality varied strongly with \(\eta\). In Figure~\ref{fig:val_loss_tuning}, the \(\eta=10^{-1}\) trace illustrates noisy optimization early in training even though the run does not blow up numerically. The \(\eta=1\) run (tabulated above) shows even larger early spikes in validation loss before settling to a poor plateau, which is why that curve is omitted from the plotted panel. The best region is \(\eta \in [3\times 10^{-3}, 10^{-2}]\). Too-small rates (\(10^{-4}, 3\times 10^{-4}\)) underfit within the token budget. Too-large rates (\(10^{-1}, 1\)) train to clearly worse final loss.
 
 The best rate (\(10^{-2}\)) is approximately \(1/10\) of the rate where instability starts (\(10^{-1}\)).
 
@@ -344,7 +370,7 @@ Batch size & Best learning rate & Best \texttt{eval/train\_loss} \\
 \end{tabular}
 \end{center}
 
-\texttt{batch\_size}=1 at \(\eta=10^{-4}\) has the lowest training loss (\(1.1619\)), but its validation loss is \(1.6665\), indicating overfitting. Among practical batch sizes, increasing from 64 to 256 improved the best achievable loss. Pushing to 1024 hurt performance again. The best practical setting was \texttt{batch\_size}=256 with \(\eta=10^{-2}\) (\texttt{eval/train\_loss} \(=1.3116\)). This suggests a non-monotonic batch-size tradeoff at a fixed token budget.
+As shown in Figure~\ref{fig:batch-size-best-lr-curves}, \texttt{batch\_size}=1 at \(\eta=10^{-4}\) has the lowest training loss (\(1.1619\)), but its validation loss is \(1.6665\), indicating overfitting. Among practical batch sizes, increasing from 64 to 256 improved the best achievable loss. Pushing to 1024 hurt performance again. The best practical setting was \texttt{batch\_size}=256 with \(\eta=10^{-2}\) (\texttt{eval/train\_loss} \(=1.3116\)). This suggests a non-monotonic batch-size tradeoff at a fixed token budget.
 
 \section{Problem (generate): Generate Text}
 The following is LM-generated text from a TinyStories run. Settings: \texttt{vocab\_size}=32000 (32k BPE tokenizer), learning rate \(3\times 10^{-3}\), checkpoint \texttt{tiny\_32k\_bs256\_lr3e-3\_10k\_wandb.pt} (step 10{,}000). Decoding used \texttt{temperature}=0.45, \texttt{top\_p}=0.85, and \texttt{max\_new\_tokens}=256.
@@ -435,18 +461,33 @@ The OpenWebText run (\texttt{owt\_bs256\_lr0.01\_10k\_vocab32k}) is shown below,
     \label{fig:owt-vs-tiny-val-loss}
 \end{figure}
 
-Compared with TinyStories, OpenWebText converges much more slowly and to a substantially higher loss (TinyStories best \(\approx 1.31\) vs.\ OpenWebText final \(\approx 3.74\)). This is expected. OpenWebText is more diverse, noisier, and less repetitive than TinyStories. The conditional next-token distribution has higher entropy and is harder for a small 4-layer model to fit. The higher OWT loss does not necessarily indicate a broken pipeline. It reflects a more difficult dataset and model-capacity regime.
+As shown in Figure~\ref{fig:owt-vs-tiny-val-loss}, OpenWebText converges much more slowly than TinyStories and to a substantially higher loss (TinyStories best \(\approx 1.31\) vs.\ OpenWebText final \(\approx 3.74\)). This is expected. OpenWebText is more diverse, noisier, and less repetitive than TinyStories. The conditional next-token distribution has higher entropy and is harder for a small 4-layer model to fit. The higher OWT loss does not necessarily indicate a broken pipeline. It reflects a more difficult dataset and model-capacity regime.
 
 Using the latest OpenWebText checkpoint (\texttt{checkpoints/owt\_bs256\_lr0.01\_10k\_vocab32k.pt}), generation with \texttt{max\_new\_tokens=256}, \texttt{temperature=0.9}, and \texttt{top\_p=0.95} produced a 263-token sample (no \texttt{<|endoftext|>} encountered before the length cap). The output is:
 
 \begin{verbatim}
-In a surprising turn of events, the billionaire played a major role in selling the shirts to Korean businessman Kim Il-sung. "Nobody was working in Chinese," he told reporters after receiving an Internet cover story that circulated online about the events. "He's not living in China."
+In a surprising turn of events, the billionaire played a major role in
+selling the shirts to Korean businessman Kim Il-sung. "Nobody was working
+in Chinese," he told reporters after receiving an Internet cover story
+that circulated online about the events. "He's not living in China."
 
-Jennifer Laney, a partner with the Hymen business group, said she and her husband do not have clients. In fact, she insisted, she had no credit for having received their American Embassy notice. "It's a bad business," Laney said.
+Jennifer Laney, a partner with the Hymen business group, said she and her
+husband do not have clients. In fact, she insisted, she had no credit for
+having received their American Embassy notice. "It's a bad business,"
+Laney said.
 
-The point has changed with the notorious bitcoin vendor. In July, a Chinese hacker and a banker filed a $1 million lawsuit against 12 investors. On Thursday, an attorney at Goldman Sachs declined to comment on the case.
+The point has changed with the notorious bitcoin vendor. In July, a
+Chinese hacker and a banker filed a $1 million lawsuit against 12
+investors. On Thursday, an attorney at Goldman Sachs declined to comment
+on the case.
 
-South Park's income in China is estimated to be about $1 billion, according to a 2011 Chinese Election Commission survey. The United States Congressmen's Office (U.S.A.) found that this year, a 20 percent increase in salaries for the registration and qualification requirements of a living student in the U.S. was the median for the state's student salary in 2013. In that same year, the country began to recover from foreign currency imports, including imports in exchange for
+South Park's income in China is estimated to be about $1 billion,
+according to a 2011 Chinese Election Commission survey. The United States
+Congressmen's Office (U.S.A.) found that this year, a 20 percent increase
+in salaries for the registration and qualification requirements of a
+living student in the U.S. was the median for the state's student salary
+in 2013. In that same year, the country began to recover from foreign
+currency imports, including imports in exchange for
 \end{verbatim}
 
 The sample is locally fluent (grammatical sentences, plausible news-style phrasing), but globally inconsistent across paragraphs (topic drift, entity and claim incoherence). Two main factors affect quality. First, \textbf{decoding settings}: higher temperature and top-p increase diversity but can reduce consistency. Second, \textbf{training scale}: more high-quality tokens and a better-converged checkpoint improve long-range coherence. Additional contributors include \textbf{model capacity}, \textbf{context length}, and \textbf{tokenizer-domain match}.
